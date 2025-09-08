@@ -5,7 +5,7 @@ import {
   get_real_id,
   get_real_id_from_price_x128,
   get_storage_id_from_real_id,
-} from 'calc_almm/pkg/pkg-bundler/calc_almm'
+} from '@magmaprotocol/calc_almm'
 import Decimal from 'decimal.js'
 import BN from 'bn.js'
 import { BinMath, MathUtil } from '../math'
@@ -230,6 +230,7 @@ export class AlmmModule implements IModule {
       tx.pure.u64(params.base_fee),
       tx.pure.u16(params.bin_step),
       tx.pure.u32(storage_id),
+      tx.object(CLOCK_ADDRESS),
     ]
 
     tx.moveCall({
@@ -552,14 +553,21 @@ export class AlmmModule implements IModule {
     const tx = new Transaction()
     tx.setSender(this.sdk.senderAddress)
 
-    const { integrate, clmm_pool } = this.sdk.sdkOptions
+    const { integrate, clmm_pool, almm_pool } = this.sdk.sdkOptions
     const clmmConfigs = getPackagerConfigs(clmm_pool)
+    const almmConfig = getPackagerConfigs(almm_pool)
     const typeArguments = [params.coin_a, params.coin_b, ...params.rewards_token]
-    let args = [tx.object(params.pool_id), tx.object(params.position_id), tx.object(CLOCK_ADDRESS)]
+    let args = [tx.object(almmConfig.factory), tx.object(params.pool_id), tx.object(params.position_id), tx.object(CLOCK_ADDRESS)]
     let target = `${integrate.published_at}::${AlmmScript}::burn_position`
 
     if (params.rewards_token.length > 0) {
-      args = [tx.object(params.pool_id), tx.object(clmmConfigs.global_vault_id), tx.object(params.position_id), tx.object(CLOCK_ADDRESS)]
+      args = [
+        tx.object(almmConfig.factory),
+        tx.object(params.pool_id),
+        tx.object(clmmConfigs.global_vault_id),
+        tx.object(params.position_id),
+        tx.object(CLOCK_ADDRESS),
+      ]
       target = `${integrate.published_at}::${AlmmScript}::burn_position_reward${params.rewards_token.length}`
     }
 
@@ -575,14 +583,22 @@ export class AlmmModule implements IModule {
     const tx = new Transaction()
     tx.setSender(this.sdk.senderAddress)
 
-    const { integrate, clmm_pool } = this.sdk.sdkOptions
+    const { integrate, clmm_pool, almm_pool } = this.sdk.sdkOptions
     const clmmConfigs = getPackagerConfigs(clmm_pool)
+    const almmConfig = getPackagerConfigs(almm_pool)
     const typeArguments = [params.coin_a, params.coin_b, ...params.rewards_token]
-    let args = [tx.object(params.pool_id), tx.object(params.position_id), tx.pure.u64(params.delta_percentage), tx.object(CLOCK_ADDRESS)]
+    let args = [
+      tx.object(almmConfig.factory),
+      tx.object(params.pool_id),
+      tx.object(params.position_id),
+      tx.pure.u64(params.delta_percentage),
+      tx.object(CLOCK_ADDRESS),
+    ]
     let target = `${integrate.published_at}::${AlmmScript}::shrink_position`
 
     if (params.rewards_token.length > 0) {
       args = [
+        tx.object(almmConfig.factory),
         tx.object(params.pool_id),
         tx.object(clmmConfigs.global_vault_id),
         tx.object(params.position_id),
@@ -624,17 +640,18 @@ export class AlmmModule implements IModule {
     const tx = transaction || new Transaction()
     tx.setSender(this.sdk.senderAddress)
 
-    const { integrate, clmm_pool } = this.sdk.sdkOptions
+    const { integrate, clmm_pool, almm_pool } = this.sdk.sdkOptions
     const clmmConfigs = getPackagerConfigs(clmm_pool)
+    const almmConfig = getPackagerConfigs(almm_pool)
     const typeArguments = [params.coin_a, params.coin_b, ...params.rewards_token]
     const args = [
+      tx.object(almmConfig.factory),
       tx.object(params.pool_id),
       tx.object(clmmConfigs.global_vault_id),
       tx.object(params.position_id),
       tx.object(CLOCK_ADDRESS),
     ]
     let target = `${integrate.published_at}::${AlmmScript}::collect_reward`
-
     if (params.rewards_token.length > 1) {
       target = `${integrate.published_at}::${AlmmScript}::collect_reward${params.rewards_token.length}`
     }
@@ -651,9 +668,12 @@ export class AlmmModule implements IModule {
     const tx = transaction || new Transaction()
     tx.setSender(this.sdk.senderAddress)
 
-    const { integrate } = this.sdk.sdkOptions
+    const { integrate, almm_pool } = this.sdk.sdkOptions
+    const almmConfig = getPackagerConfigs(almm_pool)
+
     const typeArguments = [params.coin_a, params.coin_b]
-    const args = [tx.object(params.pool_id), tx.object(params.position_id), tx.object(CLOCK_ADDRESS)]
+    const args = [tx.object(almmConfig.factory), tx.object(params.pool_id), tx.object(params.position_id), tx.object(CLOCK_ADDRESS)]
+
     const target = `${integrate.published_at}::${AlmmScript}::collect_fees`
 
     tx.moveCall({
@@ -713,9 +733,9 @@ export class AlmmModule implements IModule {
     const tx = new Transaction()
     tx.setSender(this.sdk.senderAddress)
 
-    const { clmm_pool, integrate } = this.sdk.sdkOptions
+    const { clmm_pool, almm_pool, integrate } = this.sdk.sdkOptions
     const { global_config_id } = getPackagerConfigs(clmm_pool)
-
+    const almmConfig = getPackagerConfigs(almm_pool)
     const typeArguments = [params.coinTypeA, params.coinTypeB]
 
     const allCoinAsset = await this._sdk.getOwnerCoinAssets(this._sdk.senderAddress)
@@ -738,6 +758,7 @@ export class AlmmModule implements IModule {
     )
 
     const args = [
+      tx.object(almmConfig.factory),
       tx.object(params.pair),
       tx.object(global_config_id),
       primaryCoinInputA.targetCoin,

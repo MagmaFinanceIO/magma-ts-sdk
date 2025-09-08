@@ -1,6 +1,6 @@
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import BN from 'bn.js'
-import { get_price_x128_from_real_id, get_real_id_from_price_x128, get_swap_out, get_swap_in } from 'calc_almm/pkg/pkg-bundler/calc_almm'
+import { get_price_x128_from_real_id, get_real_id_from_price_x128, get_swap_out, get_swap_in } from '@magmaprotocol/calc_almm'
 import { initMagmaSDK } from './config'
 import { adjustForSlippage, Percentage } from './math'
 import { d } from './utils'

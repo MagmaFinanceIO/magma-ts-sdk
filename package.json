@@ -1,6 +1,6 @@
 {
   "name": "@magmaprotocol/magma-clmm-sdk",
-  "version": "0.5.115",
+  "version": "0.5.117",
   "description": "SDK for magma swap and liquidity",
   "typings": "dist/index.d.ts",
   "main": "dist/index.js",
@@ -70,7 +70,7 @@
     "typescript": "^5.4.5"
   },
   "peerDependencies": {
-    "@mysten/bcs": "^1.6.4",
+    "@mysten/bcs": "^1.7.0",
     "@mysten/sui": "1.35.0"
   },
   "dependencies": {
