@@ -1,0 +1,11 @@
+/node_modules
+.DS_Store
+dist/**/*
+/.vscode/
+package.test.json
+/examples/node_modules
+/examples/package-lock.json
+/examples/*.js
+/.idea
+/calc_almm/target/
+/calc_almm/pkg/
