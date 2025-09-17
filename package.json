@@ -1,6 +1,6 @@
 {
   "name": "@magmaprotocol/magma-ts-sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SDK for magma swap and liquidity",
   "typings": "dist/index.d.ts",
   "main": "dist/index.js",
@@ -46,7 +46,7 @@
   "devDependencies": {
     "@commitlint/cli": "^17.1.2",
     "@mysten/bcs": "^1.6.4",
-    "@mysten/sui": "1.35.0",
+    "@mysten/sui": "^1.35.0",
     "@types/cors": "^2.8.13",
     "@types/jest": "^29.0.0",
     "@types/lossless-json": "^1.0.1",

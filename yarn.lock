@@ -624,10 +624,10 @@
     "@shikijs/types" "^1.24.0"
     "@shikijs/vscode-textmate" "^9.3.0"
 
-"@gql.tada/cli-utils@1.6.3":
-  version "1.6.3"
-  resolved "https://registry.npmjs.org/@gql.tada/cli-utils/-/cli-utils-1.6.3.tgz"
-  integrity sha512-jFFSY8OxYeBxdKi58UzeMXG1tdm4FVjXa8WHIi66Gzu9JWtCE6mqom3a8xkmSw+mVaybFW5EN2WXf1WztJVNyQ==
+"@gql.tada/cli-utils@1.7.1":
+  version "1.7.1"
+  resolved "https://registry.yarnpkg.com/@gql.tada/cli-utils/-/cli-utils-1.7.1.tgz#2e849c4c5d7e0d4914b34d167a74e3022d0a79d1"
+  integrity sha512-wg5ysZNQxtNQm67T3laVWmZzLpGb7QfyYWZdaUD2r1OjDj5Bgftq7eQlplmH+hsdffjuUyhJw/b5XAjeE2mJtg==
   dependencies:
     "@0no-co/graphqlsp" "^1.12.13"
     "@gql.tada/internal" "1.0.8"
@@ -927,12 +927,12 @@
   resolved "https://registry.npmjs.org/@magmaprotocol/calc_almm/-/calc_almm-0.2.2.tgz"
   integrity sha512-b3RgjJxB9Ea1dmNeaiArdig4FDXp9UPt+moTCy5aB4N2DRiiIN0TGKj8a4qrPPzZCW5ORnS53wplaikfNVujVg==
 
-"@mysten/bcs@1.6.3":
-  version "1.6.3"
-  resolved "https://registry.npmjs.org/@mysten/bcs/-/bcs-1.6.3.tgz"
-  integrity sha512-QQ6u0U7a4+/o6rZ9tALTeGYMdf6V5z/HkRI/mhD5/fSr80DJoGzOWpFszcN/fhJpKb36vBaSQUMpS7yNQ10xBQ==
+"@mysten/bcs@1.8.0":
+  version "1.8.0"
+  resolved "https://registry.yarnpkg.com/@mysten/bcs/-/bcs-1.8.0.tgz#2d04dfc36e014cd09263d407964caf3080be3dda"
+  integrity sha512-bDoLN1nN+XPONsvpNyNyqYHndM3PKWS419GLeRnbLoWyNm4bnyD1X4luEpJLLDq400hBuXiCan4RWjofvyTUIQ==
   dependencies:
-    "@mysten/utils" "0.1.0"
+    "@mysten/utils" "0.2.0"
     "@scure/base" "^1.2.6"
 
 "@mysten/bcs@^1.6.4":
@@ -943,30 +943,23 @@
     "@mysten/utils" "0.1.1"
     "@scure/base" "^1.2.6"
 
-"@mysten/sui@1.35.0":
-  version "1.35.0"
-  resolved "https://registry.npmjs.org/@mysten/sui/-/sui-1.35.0.tgz"
-  integrity sha512-za0+SiEFtjAjk0sJ8P9Q/X/m2E/YrXQ/UNsotEwb/eCqPyGS8A9Mrxkhm/iIgR1+AAl1OWUWCrqgJVe7u2i61A==
+"@mysten/sui@^1.35.0":
+  version "1.38.0"
+  resolved "https://registry.yarnpkg.com/@mysten/sui/-/sui-1.38.0.tgz#2ca46e0d45ac7624d653e3ace3a4c856864102b0"
+  integrity sha512-tH6V4BJsYi5d97MOiLoOhyldrYxkm/cu8dYV52asqh1i88HrSVMbPAJ9sVoeWN2Ju+QsJ/Go4ldSjdCkaBCyJQ==
   dependencies:
     "@graphql-typed-document-node/core" "^3.2.0"
-    "@mysten/bcs" "1.6.3"
-    "@mysten/utils" "0.1.0"
-    "@noble/curves" "^1.9.1"
+    "@mysten/bcs" "1.8.0"
+    "@mysten/utils" "0.2.0"
+    "@noble/curves" "^1.9.4"
     "@noble/hashes" "^1.8.0"
     "@scure/base" "^1.2.6"
     "@scure/bip32" "^1.7.0"
     "@scure/bip39" "^1.6.0"
-    gql.tada "^1.8.2"
+    gql.tada "^1.8.13"
     graphql "^16.11.0"
-    poseidon-lite "^0.2.0"
+    poseidon-lite "0.2.1"
     valibot "^0.36.0"
-
-"@mysten/utils@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.npmjs.org/@mysten/utils/-/utils-0.1.0.tgz"
-  integrity sha512-nFxqArh4cr629elLsIk7UZmx5dFVshblwrfwaG7Dm2L/ii2C65bhK5tdTs6UiC3K0tCr8q8svrgzXyF9L0CN/A==
-  dependencies:
-    "@scure/base" "^1.2.6"
 
 "@mysten/utils@0.1.1":
   version "0.1.1"
@@ -975,7 +968,14 @@
   dependencies:
     "@scure/base" "^1.2.6"
 
-"@noble/curves@^1.9.1", "@noble/curves@~1.9.0":
+"@mysten/utils@0.2.0":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@mysten/utils/-/utils-0.2.0.tgz#8c4fa3858284de84c333bc7ae09510cf54d55a54"
+  integrity sha512-CM6kJcJHX365cK6aXfFRLBiuyXc5WSBHQ43t94jqlCAIRw8umgNcTb5EnEA9n31wPAQgLDGgbG/rCUISCTJ66w==
+  dependencies:
+    "@scure/base" "^1.2.6"
+
+"@noble/curves@^1.9.4", "@noble/curves@~1.9.0":
   version "1.9.7"
   resolved "https://registry.npmjs.org/@noble/curves/-/curves-1.9.7.tgz"
   integrity sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==
@@ -2984,14 +2984,14 @@ gopd@^1.0.1:
   dependencies:
     get-intrinsic "^1.1.3"
 
-gql.tada@^1.8.2:
-  version "1.8.10"
-  resolved "https://registry.npmjs.org/gql.tada/-/gql.tada-1.8.10.tgz"
-  integrity sha512-FrvSxgz838FYVPgZHGOSgbpOjhR+yq44rCzww3oOPJYi0OvBJjAgCiP6LEokZIYND2fUTXzQAyLgcvgw1yNP5A==
+gql.tada@^1.8.13:
+  version "1.8.13"
+  resolved "https://registry.yarnpkg.com/gql.tada/-/gql.tada-1.8.13.tgz#a724bbdaebe1d851d80bf59c5e8614956914b883"
+  integrity sha512-fYoorairdPgxtE7Sf1X9/6bSN9Kt2+PN8KLg3hcF8972qFnawwUgs1OLVU8efZMHwL7EBHhhKBhrsGPlOs2lZQ==
   dependencies:
     "@0no-co/graphql.web" "^1.0.5"
     "@0no-co/graphqlsp" "^1.12.13"
-    "@gql.tada/cli-utils" "1.6.3"
+    "@gql.tada/cli-utils" "1.7.1"
     "@gql.tada/internal" "1.0.8"
 
 graceful-fs@^4.1.2, graceful-fs@^4.1.6, graceful-fs@^4.2.0, graceful-fs@^4.2.9:
@@ -4580,9 +4580,9 @@ pkg-dir@^4.2.0:
   dependencies:
     find-up "^4.0.0"
 
-poseidon-lite@^0.2.0:
+poseidon-lite@0.2.1:
   version "0.2.1"
-  resolved "https://registry.npmjs.org/poseidon-lite/-/poseidon-lite-0.2.1.tgz"
+  resolved "https://registry.yarnpkg.com/poseidon-lite/-/poseidon-lite-0.2.1.tgz#7ad98e3a3aa5b91a1fd3a61a87460e9e46fd76d6"
   integrity sha512-xIr+G6HeYfOhCuswdqcFpSX47SPhm0EpisWJ6h7fHlWwaVIvH3dLnejpatrtw6Xc6HaLrpq05y7VRfvDmDGIog==
 
 postcss-load-config@^3.0.1:
