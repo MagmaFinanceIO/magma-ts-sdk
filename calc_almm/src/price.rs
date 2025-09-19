@@ -39,7 +39,7 @@ pub fn get_real_id(storage_id: u32) -> i32 {
 }
 
 fn get_base(bin_step: u16) -> U256 {
-    U256::from(constants::scale())
+    constants::scale()
         + (U256::from(bin_step) << constants::scale_offset())
             / U256::from(constants::basis_point_max())
 }

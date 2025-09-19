@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::format};
 
 use alloy_primitives::U256;
 use serde::{Deserialize, Serialize, de};
@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 use crate::{constants, price, uint_safe};
 
 #[wasm_bindgen]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SwapOutResult {
     pub success: bool,
     #[wasm_bindgen(getter_with_clone)]
@@ -16,17 +16,6 @@ pub struct SwapOutResult {
     pub amount_in_left: u64,
     pub amount_out: u64,
     pub fee: u64,
-}
-
-#[wasm_bindgen]
-impl SwapOutResult {
-    #[wasm_bindgen(js_name = toString)]
-    pub fn to_string(&self) -> String {
-        format!(
-            "SwapOutResult {{ success: {}, error: \"{}\", amount_in_left: {}, amount_out: {}, fee: {} }}",
-            self.success, self.error, self.amount_in_left, self.amount_out, self.fee
-        )
-    }
 }
 
 #[wasm_bindgen]
@@ -41,7 +30,7 @@ impl SwapOutResult {
 }
 
 #[wasm_bindgen]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SwapInResult {
     pub success: bool,
     #[wasm_bindgen(getter_with_clone)]
@@ -49,17 +38,6 @@ pub struct SwapInResult {
     pub amount_in: u64,
     pub amount_out_left: u64,
     pub fee: u64,
-}
-
-#[wasm_bindgen]
-impl SwapInResult {
-    #[wasm_bindgen(js_name = toString)]
-    pub fn to_string(&self) -> String {
-        format!(
-            "SwapInResult {{ success: {}, error: \"{}\", amount_in: {}, amount_out_left: {}, fee: {} }}",
-            self.success, self.error, self.amount_in, self.amount_out_left, self.fee
-        )
-    }
 }
 
 #[wasm_bindgen]
@@ -92,7 +70,18 @@ pub fn get_swap_out(
 ) -> SwapOutResult {
     let mut amount_in_left = amount_in;
 
-    let pair: AlmmPair = serde_json::from_str(pair).unwrap();
+    let mut pair: AlmmPair = match serde_json::from_str(pair) {
+        Ok(res) => res,
+        Err(e) => {
+            return SwapOutResult {
+                success: false,
+                error: format!("Failed to parse pair: {}", e),
+                amount_in_left: amount_in,
+                ..Default::default()
+            };
+        }
+    };
+    pair.init_bin_map();
 
     let mut params = pair.params.clone();
     let mut id = params.active_index;
@@ -151,7 +140,7 @@ pub fn get_swap_out(
             let (next_id, found) = pair.get_next_non_empty_bin_internal(swap_for_y, id);
             if !found {
                 success = false;
-                error_msg = Some(format!("No next bin available: {}, {}", id, next_id));
+                error_msg = Some(format!("No next bin available",));
                 break;
             };
             id = next_id;
@@ -174,7 +163,18 @@ pub fn get_swap_in(
     swap_for_y: bool,
     timestamp_ms: u64,
 ) -> SwapInResult {
-    let pair: AlmmPair = serde_json::from_str(pair).unwrap();
+    let mut pair: AlmmPair = match serde_json::from_str(pair) {
+        Ok(res) => res,
+        Err(e) => {
+            return SwapInResult {
+                success: false,
+                error: format!("Failed to parse pair: {}", e),
+                amount_out_left: amount_out,
+                ..Default::default()
+            };
+        }
+    };
+    pair.init_bin_map();
 
     let mut params = pair.params.clone();
     let mut amount_out_left = amount_out;
@@ -185,7 +185,6 @@ pub fn get_swap_in(
     let mut amount_in = 0;
     let mut fee = 0;
     let mut success = true;
-    let mut error_msg = None;
 
     loop {
         let bin = pair.bins_map.get(&id).unwrap();
@@ -243,11 +242,17 @@ pub fn get_swap_in(
 }
 
 impl AlmmPair {
+    fn init_bin_map(&mut self) {
+        for bin in &self.bins {
+            self.bins_map.insert(bin.storage_id, bin.clone());
+        }
+    }
+
     fn get_next_non_empty_bin_internal(&self, swap_for_y: bool, id: u32) -> (u32, bool) {
         if swap_for_y {
-            self.find_first_left(id)
-        } else {
             self.find_first_right(id)
+        } else {
+            self.find_first_left(id)
         }
     }
 
@@ -396,17 +401,9 @@ impl AlmmPairParameter {
     }
 
     fn update_volatility_accumulator(&mut self, active_id: u32) {
-        let id_reference = self.index_reference;
-        let delta_id = active_id.abs_diff(id_reference);
-        let mut vol_acc =
-            self.volatility_reference + delta_id * (constants::BASIS_POINT_MAX as u32);
-        let max_vol_acc = self.max_volatility_accumulator;
-        vol_acc = if vol_acc > max_vol_acc {
-            max_vol_acc
-        } else {
-            vol_acc
-        };
-        self.volatility_accumulator = vol_acc;
+        let delta_id = active_id.abs_diff(self.index_reference);
+        let vol_acc = self.volatility_reference + delta_id * (constants::BASIS_POINT_MAX as u32);
+        self.volatility_accumulator = vol_acc.min(self.max_volatility_accumulator);
     }
 
     fn update_id_reference(&mut self) {
@@ -461,7 +458,7 @@ mod bin {
         } else {
             let (amount, _) = u128x128::from_u128x128(U256::from(bin_reserve_out) * bin_price_q128);
             uint_safe::safe64(U256::from(amount))
-        };
+        } + 1;
 
         let max_fee = fee::get_fee_amount_by_net_input(max_amount_in, total_fee);
         let max_amount_in = max_amount_in + max_fee;
@@ -570,7 +567,7 @@ mod fee {
 
         let denominator = U256::from(FEE_DENOM - total_fee_rate);
         // Can't overflow, max(result) = (type(uint128).max * 0.1e18 + (1e18 - 1)) / 0.9e18 < 2^128
-        let amount = (U256::from(amount) * U256::from(total_fee_rate) + U256::from(denominator)
+        let amount = (U256::from(amount) * U256::from(total_fee_rate) + denominator
             - U256::from(1))
             / denominator;
 
@@ -692,6 +689,6 @@ mod tests {
         assert!(!result.error.is_empty());
         assert_eq!(result.error, "No next bin available");
         // Result fields are still provided even when there's an error
-        assert!(result.amount_in_left > 0 || result.amount_out > 0 || result.fee >= 0);
+        assert!(result.amount_in_left > 0 || result.amount_out > 0);
     }
 }
