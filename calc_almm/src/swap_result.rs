@@ -167,7 +167,7 @@ pub fn get_swap_in(pair: &str, amount_out: u64, swap_for_y: bool, timestamp_ms: 
             let amount_in_without_fee = uint_safe::safe64(amount_in_without_fee);
 
             let total_fee = params.get_total_fee(pair.bin_step);
-            let fee_amount = fee::get_fee_amount_from(amount_in_without_fee, total_fee);
+            let fee_amount = fee::get_fee_amount_by_net_input(amount_in_without_fee, total_fee);
 
             amount_in = amount_in + amount_in_without_fee + fee_amount;
             amount_out_left -= amount_out_of_bin;
@@ -306,21 +306,23 @@ impl AlmmPairParameter {
         self.get_base_fee(bin_step) + self.get_variable_fee(bin_step)
     }
 
-    fn get_base_fee(&self, bin_step: u16) -> u64 {
-        // Base factor is in basis points: 10000
-        // binStep is in basis points: 100000
+    // target base fee rate 1e8 basis
+    pub fn get_base_fee(&self, bin_step: u16) -> u64 {
+        // Base factor is in basis points: 100000
+        // binStep is in basis points: 10000
         // 1e9
-        (self.base_factor as u64) * (bin_step as u64)
+        ((self.base_factor as u64) * (bin_step as u64) + 9) / 10
     }
 
-    fn get_variable_fee(&self, bin_step: u16) -> u64 {
+    pub fn get_variable_fee(&self, bin_step: u16) -> u64 {
         if self.variable_fee_control != 0 {
-            // The volatility accumulator is in basis points, binStep is in basis points,
-            // and the variable fee control is in basis points, so the result is in 100e18th
+            // The volatility accumulator is in basis points, binStep is in basis points.
+            // The variable fee control is in 1e10 basis.
+            // So the result is in 1e24th
             let prod = U256::from(self.volatility_accumulator) * U256::from(bin_step);
-            ((prod * prod * U256::from(self.variable_fee_control) + U256::from(99))
-                / U256::from(100)
-                / U256::from(1_000_000_000))
+            ((prod * prod * U256::from(self.variable_fee_control)
+                + U256::from(9_999_999_999_999_999u64))
+                / U256::from(10_000_000_000_000_000u64))
             .to::<u64>()
         } else {
             0
@@ -413,7 +415,7 @@ mod bin {
             uint_safe::safe64(U256::from(amount))
         };
 
-        let max_fee = fee::get_fee_amount(max_amount_in, total_fee);
+        let max_fee = fee::get_fee_amount_by_net_input(max_amount_in, total_fee);
         let max_amount_in = max_amount_in + max_fee;
 
         let (fee, amount_in, amount_out) = if amount_in_left >= max_amount_in {
@@ -430,7 +432,7 @@ mod bin {
             if amount_out > bin_reserve_out {
                 amount_out = bin_reserve_out;
             };
-            (fee, amount_in, amount_out)
+            (fee, amount_in_left, amount_out)
         };
 
         let (
@@ -497,31 +499,42 @@ mod fee {
 
     use super::uint_safe;
 
-    pub fn get_fee_amount_from(amount_with_fees: u64, total_fee: u64) -> u64 {
-        verify_fee(total_fee);
+    const FEE_DENOM: u64 = 100000000;
 
-        // Can't overflow, max(result) = (type(uint128).max * 0.1e18 + 1e18 - 1) / 1e18 < 2^128
-        let amount = (U256::from(amount_with_fees) * U256::from(total_fee)
-            + U256::from(constants::PRECISION)
-            - U256::from(1))
-            / U256::from(constants::PRECISION);
+    fn cap_fee_rate(fee_rate: u64) -> u64 {
+        fee_rate.min(constants::MAX_FEE_RATE)
+    }
+
+    pub fn get_fee_amount_from(amount_with_fees: u64, total_fee_rate: u64) -> u64 {
+        // verify_fee(total_fee);
+        let total_fee_rate = cap_fee_rate(total_fee_rate);
+
+        let amount = (U256::from(amount_with_fees) * U256::from(total_fee_rate)
+            + U256::from(FEE_DENOM - 1))
+            / U256::from(FEE_DENOM);
 
         uint_safe::safe64(amount)
     }
 
-    pub fn get_fee_amount(amount: u64, total_fee: u64) -> u64 {
-        verify_fee(total_fee);
+    pub fn get_fee_amount_by_net_input(amount: u64, total_fee_rate: u64) -> u64 {
+        // verify_fee(total_fee_rate);
+        let total_fee_rate = cap_fee_rate(total_fee_rate);
 
-        let denominator = U256::from(constants::PRECISION as u64 - total_fee);
+        let denominator = U256::from(FEE_DENOM - total_fee_rate);
         // Can't overflow, max(result) = (type(uint128).max * 0.1e18 + (1e18 - 1)) / 0.9e18 < 2^128
-        let amount = (U256::from(amount) * U256::from(total_fee) + denominator - U256::from(1))
+        let amount = (U256::from(amount) * U256::from(total_fee_rate) + U256::from(denominator)
+            - U256::from(1))
             / denominator;
 
         uint_safe::safe64(amount)
     }
 
-    pub fn verify_fee(fee: u64) {
-        assert!(fee <= constants::MAX_FEE, "ErrFeeTooLarge");
+    pub fn verify_fee(fee: u64) -> Result<(), String> {
+        if fee > constants::MAX_FEE_RATE {
+            Err("ErrFeeTooLarge".to_string())
+        } else {
+            Ok(())
+        }
     }
 }
 

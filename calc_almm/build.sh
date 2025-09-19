@@ -39,7 +39,7 @@ if [ -z ${CALC_DEBUG} ]; then
     wasm-pack build --target bundler --scope magmaprotocol "$SCRIPT_DIR" -d pkg/pkg-bundler
     wasm-pack build --target nodejs --scope magmaprotocol "$SCRIPT_DIR" -d pkg/pkg-nodejs
     rm pkg/pkg-bundler/package.json pkg/pkg-nodejs/package.json
-    mv package.json pkg/
+    cp package.json pkg/
 else
     echo "Fee debugging enabled"
     wasm-pack build --debug --target bundler --scope magmaprotocol "$SCRIPT_DIR" -- --features debug
