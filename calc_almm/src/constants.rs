@@ -6,7 +6,8 @@ pub const PRECISION_N: u8 = 9;
 pub const PRECISION: u128 = 1000000000;
 pub const SQUARED_PRECISION: u128 = PRECISION * PRECISION;
 
-pub const MAX_FEE: u64 = 100000000; // 10%
+pub const FEE_DENOM: u64 = 100000000;
+pub const MAX_FEE_RATE: u64 = 10000000; // 10%
 pub const BASIS_POINT_MAX: u16 = 10000;
 pub const MAX_PROTOCOL_SHARE: u16 = 2500; // 25%
 

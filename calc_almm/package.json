@@ -1,0 +1,28 @@
+{
+  "name": "@magmaprotocol/calc_almm",
+  "version": "0.2.4",
+  "files": [
+    "pkg-nodejs/calc_almm_bg.wasm",
+    "pkg-nodejs/calc_almm.js",
+    "pkg-nodejs/calc_almm.d.ts",
+    "pkg-bundler/calc_almm_bg.wasm",
+    "pkg-bundler/calc_almm.js",
+    "pkg-bundler/calc_almm_bg.js",
+    "pkg-bundler/calc_almm.d.ts"
+  ],
+  "exports": {
+    "import": {
+      "node": "./pkg-nodejs/calc_almm.js",
+      "default": "./pkg-bundler/calc_almm.js"
+    },
+    "require": {
+      "node": "./pkg-nodejs/calc_almm.js",
+      "default": "./pkg-bundler/calc_almm.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "types": "./pkg-bundler/calc_almm.d.ts"
+}
