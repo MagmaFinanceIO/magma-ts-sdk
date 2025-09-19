@@ -74,10 +74,12 @@ impl SwapInResult {
 }
 
 #[wasm_bindgen]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct AlmmPair {
     params: AlmmPairParameter,
     bins: Vec<Bin>,
+    #[serde(skip)]
+    bins_map: HashMap<u32, Bin>,
     bin_step: u16,
 }
 
@@ -104,7 +106,7 @@ pub fn get_swap_out(
     let mut error_msg = None;
 
     loop {
-        let bin = pair.bins.get(&id).unwrap();
+        let bin = pair.bins_map.get(&id).unwrap();
         let bin_reserve = if swap_for_y {
             bin.reserve_y
         } else {
@@ -186,7 +188,7 @@ pub fn get_swap_in(
     let mut error_msg = None;
 
     loop {
-        let bin = pair.bins.get(&id).unwrap();
+        let bin = pair.bins_map.get(&id).unwrap();
         let bin_reserve = if swap_for_y {
             bin.reserve_y
         } else {
@@ -251,9 +253,9 @@ impl AlmmPair {
 
     fn find_first_left(&self, id: u32) -> (u32, bool) {
         let mut out = (1u32 << 24, false);
-        for _id in self.bins {
-            if _id > id && _id < out.0 {
-                out = (_id, true);
+        for _id in &self.bins {
+            if _id.storage_id > id && _id.storage_id < out.0 {
+                out = (_id.storage_id, true);
             }
         }
         out
@@ -261,16 +263,16 @@ impl AlmmPair {
 
     fn find_first_right(&self, id: u32) -> (u32, bool) {
         let mut out = (0, false);
-        for _id in self.bins {
-            if _id < id && _id > out.0 {
-                out = (_id, true);
+        for _id in &self.bins {
+            if _id.storage_id < id && _id.storage_id > out.0 {
+                out = (_id.storage_id, true);
             }
         }
         out
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Bin {
     pub storage_id: u32,
     pub price_q128: String,
@@ -328,7 +330,7 @@ impl From<Bin> for BinInner {
 }
 
 #[wasm_bindgen]
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub struct AlmmPairParameter {
     pub base_factor: u32,          // 32bit, basis_point
     pub filter_period: u16,        // 12bit
@@ -604,7 +606,65 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::swap_result::AlmmPair;
+    #[test]
+    fn test_first_higher() {
+        let mut almm_pair = AlmmPair::default();
+
+        almm_pair.bins.push(Bin {
+            storage_id: 1 << 23,
+            ..Default::default()
+        });
+        almm_pair.bins.push(Bin {
+            storage_id: (1 << 23) + 1,
+            ..Default::default()
+        });
+        almm_pair.bins.push(Bin {
+            storage_id: (1 << 23) + 10,
+            ..Default::default()
+        });
+        almm_pair.bins.push(Bin {
+            storage_id: (1 << 23) - 1,
+            ..Default::default()
+        });
+        almm_pair.bins.push(Bin {
+            storage_id: (1 << 23) - 10,
+            ..Default::default()
+        });
+
+        let (x, f) = almm_pair.find_first_left(1 << 23);
+        assert!(f && x == (1 << 23) + 1);
+    }
+
+    #[test]
+    fn test_first_lower() {
+        let mut almm_pair = AlmmPair::default();
+
+        almm_pair.bins.push(Bin {
+            storage_id: 1 << 23,
+            ..Default::default()
+        });
+        almm_pair.bins.push(Bin {
+            storage_id: (1 << 23) + 1,
+            ..Default::default()
+        });
+        almm_pair.bins.push(Bin {
+            storage_id: (1 << 23) + 10,
+            ..Default::default()
+        });
+        almm_pair.bins.push(Bin {
+            storage_id: (1 << 23) - 1,
+            ..Default::default()
+        });
+        almm_pair.bins.push(Bin {
+            storage_id: (1 << 23) - 10,
+            ..Default::default()
+        });
+
+        let (x, f) = almm_pair.find_first_right(1 << 23);
+        assert!(f && x == (1 << 23) - 1);
+    }
+
+    use crate::swap_result::{AlmmPair, Bin};
 
     #[test]
     fn deserialize_pair() {
@@ -623,9 +683,9 @@ mod tests {
         // Create a minimal pair with only one bin to trigger the error
         let pair_str = r#"{"params":{"active_index":8397927,"base_factor":100000,"decay_period":600,"filter_period":30,"index_reference":8397927,"max_volatility_accumulator":1000000,"oracle_index":0,"protocol_share":1000,"protocol_variable_share":1000,"reduction_factor":5000,"time_of_last_update":1754900084,"variable_fee_control":80000000,"volatility_accumulator":0,"volatility_reference":0},"bins":[{"distribution_growth":"0","distribution_last_updated":"0","fee_growth_x":"0","fee_growth_y":"0","fee_x":"0","fee_y":"0","price_q128":"3775786894786258229373795633742882229168175","reserve_x":"100","reserve_y":"100","rewarder_growth":{"contents":[]},"staked_liquidity":"0","staked_lp_amount":"0","storage_id":8397927,"real_bin_id":9319}],"bin_step":10}"#;
 
-        use crate::swap_result::get_swap_out_internal;
+        use crate::swap_result::get_swap_out;
 
-        let result = get_swap_out_internal(pair_str, 10000000, true, 1754900084000);
+        let result = get_swap_out(pair_str, 10000000, true, 1754900084000);
 
         // Should return error when no next bin is available
         assert!(!result.success);
