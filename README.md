@@ -1,6 +1,6 @@
 <a name="readme-top"></a>
 
-![npm](https://img.shields.io/npm/v/%40magmaprotocol%2FMagma-ts-SDK?logo=npm&logoColor=rgb)
+![npm](https://img.shields.io/npm/v/%40magmaprotocol%2Fmagma-ts-sdk?logo=npm&logoColor=rgb)
 ![GitHub Repo stars](https://img.shields.io/github/stars/MagmaFinanceIO/magma_clmm_sdk?logo=github)
 
 <!-- PROJECT LOGO -->
