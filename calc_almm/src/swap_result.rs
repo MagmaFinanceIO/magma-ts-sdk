@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::format};
+use std::collections::HashMap;
 
 use alloy_primitives::U256;
 use serde::{Deserialize, Serialize, de};
@@ -185,6 +185,7 @@ pub fn get_swap_in(
     let mut amount_in = 0;
     let mut fee = 0;
     let mut success = true;
+    let mut error_msg = None;
 
     loop {
         let bin = pair.bins_map.get(&id).unwrap();
@@ -672,7 +673,7 @@ mod tests {
         // change time_of_last_update to u64
         let pair_str = r#"{"params":{"active_index":8397927,"base_factor":100000,"decay_period":600,"filter_period":30,"index_reference":8397927,"max_volatility_accumulator":1000000,"oracle_index":0,"protocol_share":1000,"protocol_variable_share":1000,"reduction_factor":5000,"time_of_last_update":1754900084,"variable_fee_control":80000000,"volatility_accumulator":0,"volatility_reference":0},"bins":[{"distribution_growth":"0","distribution_last_updated":"0","fee_growth_x":"0","fee_growth_y":"0","fee_x":"0","fee_y":"0","price_q128":"3768246633273078798697601732675797893713015","reserve_x":"0","reserve_y":"6337035218","rewarder_growth":{"contents":[]},"staked_liquidity":"0","staked_lp_amount":"0","storage_id":8397925,"real_bin_id":9317},{"distribution_growth":"0","distribution_last_updated":"0","fee_growth_x":"0","fee_growth_y":"0","fee_x":"0","fee_y":"0","price_q128":"3772014879906351877496299334408473781216772","reserve_x":"0","reserve_y":"7303502761","rewarder_growth":{"contents":[]},"staked_liquidity":"0","staked_lp_amount":"0","storage_id":8397926,"real_bin_id":9318},{"distribution_growth":"0","distribution_last_updated":"0","fee_growth_x":"69939395467293378764464362697779","fee_growth_y":"0","fee_x":"2395","fee_y":"0","price_q128":"3775786894786258229373795633742882229168175","reserve_x":"292841","reserve_y":"8403240371","rewarder_growth":{"contents":[]},"staked_liquidity":"0","staked_lp_amount":"0","storage_id":8397927,"real_bin_id":9319},{"distribution_growth":"0","distribution_last_updated":"0","fee_growth_x":"13820439444612931826627696963680","fee_growth_y":"528133168131016759986463295812","fee_x":"644","fee_y":"0","price_q128":"3779562681681044487603169429376625124584583","reserve_x":"1440665","reserve_y":"0","rewarder_growth":{"contents":[]},"staked_liquidity":"0","staked_lp_amount":"0","storage_id":8397928,"real_bin_id":9320},{"distribution_growth":"0","distribution_last_updated":"0","fee_growth_x":"0","fee_growth_y":"0","fee_x":"0","fee_y":"0","price_q128":"3783342244362725532090772598806001709080349","reserve_x":"1048060","reserve_y":"0","rewarder_growth":{"contents":[]},"staked_liquidity":"0","staked_lp_amount":"0","storage_id":8397929,"real_bin_id":9321},{"distribution_growth":"0","distribution_last_updated":"0","fee_growth_x":"0","fee_growth_y":"0","fee_x":"0","fee_y":"0","price_q128":"3787125586607088257622863371404807728112884","reserve_x":"656235","reserve_y":"0","rewarder_growth":{"contents":[]},"staked_liquidity":"0","staked_lp_amount":"0","storage_id":8397930,"real_bin_id":9322},{"distribution_growth":"0","distribution_last_updated":"0","fee_growth_x":"0","fee_growth_y":"0","fee_x":"0","fee_y":"0","price_q128":"3790912712193695345880486234776212543652150","reserve_x":"568824","reserve_y":"0","rewarder_growth":{"contents":[]},"staked_liquidity":"0","staked_lp_amount":"0","storage_id":8397931,"real_bin_id":9323}],"bin_step":10}"#;
 
-        let pair: AlmmPair = serde_json::from_str(pair_str).unwrap();
+        let _pair: AlmmPair = serde_json::from_str(pair_str).unwrap();
     }
 
     #[test]
