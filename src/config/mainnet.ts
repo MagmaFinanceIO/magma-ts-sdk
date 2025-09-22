@@ -55,8 +55,8 @@ export const clmmMainnet: SdkOptions = {
     config: SDKConfig.clmmConfig,
   },
   almm_pool: {
-    package_id: '0x17ec44d20706af7f4ca563be7424bfa07c190f7f47bec157fa1eedaeec0bae3d',
-    published_at: '0x17ec44d20706af7f4ca563be7424bfa07c190f7f47bec157fa1eedaeec0bae3d',
+    package_id: '0xc7f4524aad685d7a334b559aea1a1464287a2a62d571243be1877ef53e2a916b',
+    published_at: '0xa8b3dbe60b27160e2267c237759dd26f1dfe04e3f2d7cb0fc235a1497bdbfc09',
     config: SDKConfig.almmConfig,
   },
   distribution: {
@@ -64,8 +64,8 @@ export const clmmMainnet: SdkOptions = {
     published_at: '0xee4a1f231dc45a303389998fe26c4e39278cf68b404b32e4f0b9769129b8267b',
   },
   integrate: {
-    package_id: '0x7701ae515703598d6f2451f4bfec857d3cba994fd3e1968b11110d674e3126c4',
-    published_at: '0x7701ae515703598d6f2451f4bfec857d3cba994fd3e1968b11110d674e3126c4',
+    package_id: '0x7c369062640451c79e4e8ef7540df7540d88a002d04c91ee37c771997739963f',
+    published_at: '0x7c369062640451c79e4e8ef7540df7540d88a002d04c91ee37c771997739963f',
   },
   deepbook: {
     package_id: '0x000000000000000000000000000000000000000000000000000000000000dee9',
