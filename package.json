@@ -74,7 +74,7 @@
     "@mysten/sui": "^1.35.0"
   },
   "dependencies": {
-    "@magmaprotocol/calc_almm": "^0.2.4",
+    "@magmaprotocol/calc_almm": "^0.2.5",
     "@suchipi/femver": "^1.0.0",
     "@syntsugar/cc-graph": "^0.1.1",
     "@types/bn.js": "^5.1.1",
