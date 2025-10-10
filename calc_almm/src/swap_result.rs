@@ -95,7 +95,18 @@ pub fn get_swap_out(
     let mut error_msg = None;
 
     loop {
-        let bin = pair.bins_map.get(&id).unwrap();
+        let bin = match pair.bins_map.get(&id) {
+            Some(_bin) => _bin,
+            None => {
+                let (next_id, found) = pair.get_next_non_empty_bin_internal(swap_for_y, id);
+                if !found {
+                    break;
+                };
+                id = next_id;
+                pair.bins_map.get(&id).unwrap()
+            }
+        };
+
         let bin_reserve = if swap_for_y {
             bin.reserve_y
         } else {
@@ -188,7 +199,18 @@ pub fn get_swap_in(
     let mut error_msg = None;
 
     loop {
-        let bin = pair.bins_map.get(&id).unwrap();
+        let bin = match pair.bins_map.get(&id) {
+            Some(_bin) => _bin,
+            None => {
+                let (next_id, found) = pair.get_next_non_empty_bin_internal(swap_for_y, id);
+                if !found {
+                    break;
+                };
+                id = next_id;
+                pair.bins_map.get(&id).unwrap()
+            }
+        };
+
         let bin_reserve = if swap_for_y {
             bin.reserve_y
         } else {

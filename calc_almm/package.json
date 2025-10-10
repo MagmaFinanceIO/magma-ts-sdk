@@ -1,6 +1,6 @@
 {
   "name": "@magmaprotocol/calc_almm",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "files": [
     "pkg-nodejs/calc_almm_bg.wasm",
     "pkg-nodejs/calc_almm.js",
