@@ -59,7 +59,7 @@ const magmaClmmSDK = initMagmaSDK({ network, fullNodeUrl, simulationAccount })
 
 Now, you can start using Magma SDK.
 
-### Typrscript Doc
+### TypeScript Doc
 
 You can view this typescript sdk in
 <a href="https://github.com/MagmaFinanceIO/magma_sdk_doc"><strong> Magma Development Documents. </strong></a>
