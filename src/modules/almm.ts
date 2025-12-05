@@ -781,11 +781,18 @@ export class AlmmModule implements IModule {
       AddressOwner: string
     }
 
+    // adapter new/old bin format
+    let bin_real_ids = [];
+    if (fields.bin_count) {
+      bin_real_ids = new Array(fields.bin_count).fill(1).map((_, index) => get_real_id(fields.bin_start + index))
+    } else {
+      bin_real_ids = (fields.bin_ids as number[]).map((id) => get_real_id(id))
+    }
     return {
       pos_object_id: fields.id.id,
       owner: ownerWarp.AddressOwner,
       pool: fields.pair_id,
-      bin_real_ids: (fields.bin_ids as number[]).map((id) => get_real_id(id)),
+      bin_real_ids,
       type: '',
     }
   }

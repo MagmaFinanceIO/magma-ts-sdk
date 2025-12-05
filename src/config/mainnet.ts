@@ -2,6 +2,7 @@ import { getFullnodeUrl } from '@mysten/sui/client'
 import MagmaClmmSDK, { SdkOptions } from '../main'
 
 
+
 const SDKConfig = {
   clmmConfig: {
     pools_id: '0xfa145b9de10fe858be81edd1c6cdffcf27be9d016de02a1345eb1009a68ba8b2',
@@ -12,11 +13,10 @@ const SDKConfig = {
   magmaConfig: {
   },
   almmConfig: {
-    factory: '0x29999aadee09eb031cc98a73b605805306d6ae0fe9d5099fb9e6628d99527234',
-    rewarder_global_vault: '0x8dad571fa854177a599b41571057bed93579739190ad4c2ab4b66df847a919d9',
+    factory: '0xedb456e93e423dd75a8ddebedd9974bb661195043027e32ce01649d6ccee74cf',
+    rewarder_global_vault: '0xe039c948f91be3ddcb1cb5b7ecea6fa63997898faeac1d94239298e54f8d953e',
   }
 }
-
 // mainnet
 export const clmmMainnet: SdkOptions = {
   fullRpcUrl: getFullnodeUrl('mainnet'),
@@ -30,8 +30,8 @@ export const clmmMainnet: SdkOptions = {
     config: SDKConfig.magmaConfig,
   },
   almm_pool: {
-    package_id: '0xc7f4524aad685d7a334b559aea1a1464287a2a62d571243be1877ef53e2a916b',
-    published_at: '0xa8b3dbe60b27160e2267c237759dd26f1dfe04e3f2d7cb0fc235a1497bdbfc09',
+    package_id: '0x532bf64e6f0bf702353387d53a28a3239249f47c39d58954f2c0a1f9f4436c20',
+    published_at: '0x8800c3f7496a09dd62b0850b178b73ada2aeaf34d076dcd1c1bbd0da0015550d',
     config: SDKConfig.almmConfig,
   },
   clmm_pool: {
@@ -40,8 +40,8 @@ export const clmmMainnet: SdkOptions = {
     config: SDKConfig.clmmConfig,
   },
   integrate: {
-    package_id: '0x3e5412c072c805249ad38d62e5b773d4f77e85698eaff35952c988496b92481b',
-    published_at: '0x7c369062640451c79e4e8ef7540df7540d88a002d04c91ee37c771997739963f',
+    package_id: '0xcd23d8f0a6e8b67d25499a722a4c989c6d01b97dee10f8c354bfbd42a6b3ebd9',
+    published_at: '0x4a9d6fb6f34ca8918756c2dfddf8f0a7fd5ef590bcffa6c03db24a6f10f42c5e',
   },
   deepbook: {
     package_id: '0x000000000000000000000000000000000000000000000000000000000000dee9',
