@@ -75,6 +75,22 @@ type ALockSummary = {
   voting_power: string
 }
 
+function simulationEventsByName(simulateRes: any, eventName: string): any[] {
+  return (
+    simulateRes.events?.filter((item: any) => {
+      return extractStructTagFromType(item.type).name === eventName
+    }) ?? []
+  )
+}
+
+function requireSimulationEvents(simulateRes: any, eventName: string, context: string): any[] {
+  const events = simulationEventsByName(simulateRes, eventName)
+  if (events.length === 0) {
+    throw new Error(`${context} simulation did not emit ${eventName}`)
+  }
+  return events
+}
+
 export type AddBribeReward = {
   poolId: string
   amount: string
@@ -324,7 +340,9 @@ export class LockModule implements IModule {
     })
 
     // const lockSummary = new Map<string, ALockSummary>()
-    const ids = ownerRes.data.map((item) => item.data.content.id.id)
+    const ids = ownerRes.data
+      .map((item: any) => item.data?.content?.fields?.id?.id ?? item.data?.objectId)
+      .filter((id: string | undefined): id is string => Boolean(id))
     const lockSummary = await this.getAllLockSummary(ids)
     const lockIncentiveTokens = await this.getAllBribeRewardTokensOfLock(ids) // all IncentiveTokens of LockId
     const lockFeeTokens = await this.getAllVotingFeeRewardTokens(ids) // all FeeTokens of LockId
@@ -395,12 +413,12 @@ export class LockModule implements IModule {
         const poolFeeTokens = await this.getVotingFeeRewardTokens(fields.id.id)
 
         const incentiveTokens: string[] = []
-        poolIncentiveTokens.forEach((value, key) => {
+        poolIncentiveTokens.forEach((value) => {
           incentiveTokens.push(...value)
         })
 
         const feeTokens: string[] = []
-        poolFeeTokens.forEach((value, key) => {
+        poolFeeTokens.forEach((value) => {
           feeTokens.push(...value)
         })
 
@@ -486,12 +504,12 @@ export class LockModule implements IModule {
     const poolFeeTokens = await this.getVotingFeeRewardTokens(lockId)
 
     const incentiveTokens: string[] = []
-    poolIncentiveTokens.forEach((value, key) => {
+    poolIncentiveTokens.forEach((value) => {
       incentiveTokens.push(...value)
     })
 
     const feeTokens: string[] = []
-    poolFeeTokens.forEach((value, key) => {
+    poolFeeTokens.forEach((value) => {
       feeTokens.push(...value)
     })
 
@@ -577,28 +595,21 @@ export class LockModule implements IModule {
       throw new Error(`lock_summary error code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
-    let res: ALockSummary = {
-      //  reward_distributor_claimable + incentive magma
-      fee_incentive_total: '',
-      // How much Magma can be claimed
-      reward_distributor_claimable: '',
-
-      voting_power: '',
+    const [lockSummaryEvent] = requireSimulationEvents(simulateRes, 'LockSummary', 'lock_summary')
+    const res: ALockSummary = {
+      fee_incentive_total: lockSummaryEvent.parsedBcs.fee_incentive_total,
+      reward_distributor_claimable: lockSummaryEvent.parsedBcs.reward_distributor_claimable,
+      voting_power: lockSummaryEvent.parsedBcs.voting_power,
     }
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `LockSummary`) {
-        res = {
-          fee_incentive_total: item.parsedJson.fee_incentive_total,
-          reward_distributor_claimable: item.parsedJson.reward_distributor_claimable,
-          voting_power: item.parsedJson.voting_power,
-        }
-      }
-    })
     return res
   }
 
   // Return: lock_id => ALockSummary
   async getAllLockSummary(lock_ids: string[]): Promise<Map<LockID, ALockSummary>> {
+    if (lock_ids.length === 0) {
+      return new Map<LockID, ALockSummary>()
+    }
+
     let tx = new Transaction()
     for (const lock_id of lock_ids) {
       tx = await this._aLockSummary(lock_id, tx)
@@ -644,16 +655,13 @@ export class LockModule implements IModule {
       throw new Error(`lock_summary error code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
-    // const res: ALockSummary[] = []
     const res = new Map<LockID, ALockSummary>()
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `LockSummary`) {
-        res.set(item.parsedJson.lock_id, {
-          fee_incentive_total: item.parsedJson.fee_incentive_total,
-          reward_distributor_claimable: item.parsedJson.reward_distributor_claimable,
-          voting_power: item.parsedJson.voting_power,
-        })
-      }
+    requireSimulationEvents(simulateRes, 'LockSummary', 'lock_summary').forEach((item: any) => {
+      res.set(item.parsedBcs.lock_id, {
+        fee_incentive_total: item.parsedBcs.fee_incentive_total,
+        reward_distributor_claimable: item.parsedBcs.reward_distributor_claimable,
+        voting_power: item.parsedBcs.voting_power,
+      })
     })
     return res
   }
@@ -684,32 +692,24 @@ export class LockModule implements IModule {
       throw new Error(`all_lock_summary error code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
-    let summary: AllLockSummary = {
-      current_epoch_end: 0,
-      current_epoch_vote_end: 0,
-      rebase_apr: 0,
-      team_emission_rate: 0,
-      total_locked: 0,
-      total_voted_power: 0,
-      total_voting_power: 0,
+    const [summaryEvent] = requireSimulationEvents(simulateRes, 'Summary', 'all_lock_summary')
+    const summary: AllLockSummary = {
+      current_epoch_end: Number(summaryEvent.parsedBcs.current_epoch_end),
+      current_epoch_vote_end: Number(summaryEvent.parsedBcs.current_epoch_vote_end),
+      rebase_apr: Number(summaryEvent.parsedBcs.rebase_apr),
+      team_emission_rate: Number(summaryEvent.parsedBcs.team_emission_rate),
+      total_locked: Number(summaryEvent.parsedBcs.total_locked),
+      total_voted_power: Number(summaryEvent.parsedBcs.total_voted_power),
+      total_voting_power: Number(summaryEvent.parsedBcs.total_voting_power),
     }
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `Summary`) {
-        summary = {
-          current_epoch_end: Number(item.parsedJson.current_epoch_end),
-          current_epoch_vote_end: Number(item.parsedJson.current_epoch_vote_end),
-          rebase_apr: Number(item.parsedJson.rebase_apr),
-          team_emission_rate: Number(item.parsedJson.team_emission_rate),
-          total_locked: Number(item.parsedJson.total_locked),
-          total_voted_power: Number(item.parsedJson.total_voted_power),
-          total_voting_power: Number(item.parsedJson.total_voting_power),
-        }
-      }
-    })
     return summary
   }
 
   async poolWeights(pools: string[]): Promise<PoolWeight[]> {
+    if (pools.length === 0) {
+      return []
+    }
+
     const tx = new Transaction()
     const { integrate, simulationAccount, ve33 } = this.sdk.sdkOptions
     const { magma_token, voter_id } = getPackagerConfigs(ve33)
@@ -737,20 +737,22 @@ export class LockModule implements IModule {
     }
 
     const poolWeights: PoolWeight[] = []
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `PoolsTally`) {
-        item.parsedJson.list.forEach((item: any) => {
-          poolWeights.push({
-            poolId: item.id,
-            weight: item.weight,
-          })
+    requireSimulationEvents(simulateRes, 'PoolsTally', 'pools_tally').forEach((item: any) => {
+      item.parsedBcs.list.forEach((item: any) => {
+        poolWeights.push({
+          poolId: item.id,
+          weight: item.weight,
         })
-      }
+      })
     })
     return poolWeights
   }
 
   async getAllVotingFeeRewardTokens(lock_ids: string[]): Promise<Map<LockID, string[]>> {
+    if (lock_ids.length === 0) {
+      return new Map<LockID, string[]>()
+    }
+
     let tx = new Transaction()
     for (const lock_id of lock_ids) {
       tx = await this._getVotingFeeRewardTokens(lock_id, tx)
@@ -789,20 +791,17 @@ export class LockModule implements IModule {
     }
 
     const poolFeeRewardTokens = new Map<LockID, string[]>()
-    // const poolRewardTokens: string[] = []
-    simulateRes.events?.forEach((event: any) => {
-      if (extractStructTagFromType(event.type).name === `EventFeeRewardTokens`) {
-        const { lock_id } = event.parsedJson
-        if (!poolFeeRewardTokens.has(lock_id)) {
-          poolFeeRewardTokens.set(lock_id, [])
-        }
-
-        event.parsedJson.list.contents.forEach((poolTokens: any) => {
-          poolTokens.value.forEach((token: any) => {
-            poolFeeRewardTokens.get(lock_id)?.push(token.name)
-          })
-        })
+    requireSimulationEvents(simulateRes, 'EventFeeRewardTokens', 'get_voting_fee_reward_tokens').forEach((event: any) => {
+      const { lock_id } = event.parsedBcs
+      if (!poolFeeRewardTokens.has(lock_id)) {
+        poolFeeRewardTokens.set(lock_id, [])
       }
+
+      event.parsedBcs.list.contents.forEach((poolTokens: any) => {
+        poolTokens.value.forEach((token: any) => {
+          poolFeeRewardTokens.get(lock_id)?.push(token.name)
+        })
+      })
     })
     return poolFeeRewardTokens
   }
@@ -834,24 +833,26 @@ export class LockModule implements IModule {
     }
 
     const poolRewardTokens = new Map<string, string[]>()
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventFeeRewardTokens`) {
-        item.parsedJson.list.contents.forEach((poolTokens: any) => {
-          if (!poolRewardTokens.has(poolTokens.key)) {
-            poolRewardTokens.set(poolTokens.key, [])
-          }
+    requireSimulationEvents(simulateRes, 'EventFeeRewardTokens', 'get_voting_fee_reward_tokens').forEach((item: any) => {
+      item.parsedBcs.list.contents.forEach((poolTokens: any) => {
+        if (!poolRewardTokens.has(poolTokens.key)) {
+          poolRewardTokens.set(poolTokens.key, [])
+        }
 
-          poolTokens.value.forEach((token: any) => {
-            poolRewardTokens.get(poolTokens.key)?.push(token.name)
-          })
+        poolTokens.value.forEach((token: any) => {
+          poolRewardTokens.get(poolTokens.key)?.push(token.name)
         })
-      }
+      })
     })
     return poolRewardTokens
   }
 
   // tokens
   async getAllBribeRewardTokensOfLock(lock_ids: string[]): Promise<Map<LockID, string[]>> {
+    if (lock_ids.length === 0) {
+      return new Map<LockID, string[]>()
+    }
+
     let tx = new Transaction()
     for (const lock_id of lock_ids) {
       tx = await this._getVotingBribeRewardTokens(lock_id, tx)
@@ -891,19 +892,17 @@ export class LockModule implements IModule {
     }
 
     const poolBirbeRewardTokens = new Map<LockID, string[]>()
-    simulateRes.events?.forEach((event: any) => {
-      if (extractStructTagFromType(event.type).name === `EventBribeRewardTokens`) {
-        const { lock_id } = event.parsedJson
-        if (!poolBirbeRewardTokens.has(lock_id)) {
-          poolBirbeRewardTokens.set(lock_id, [])
-        }
-
-        event.parsedJson.list.contents.forEach((poolTokens: any) => {
-          poolTokens.value.forEach((token: any) => {
-            poolBirbeRewardTokens.get(lock_id)?.push(token.name)
-          })
-        })
+    requireSimulationEvents(simulateRes, 'EventBribeRewardTokens', 'get_voting_bribe_reward_tokens').forEach((event: any) => {
+      const { lock_id } = event.parsedBcs
+      if (!poolBirbeRewardTokens.has(lock_id)) {
+        poolBirbeRewardTokens.set(lock_id, [])
       }
+
+      event.parsedBcs.list.contents.forEach((poolTokens: any) => {
+        poolTokens.value.forEach((token: any) => {
+          poolBirbeRewardTokens.get(lock_id)?.push(token.name)
+        })
+      })
     })
     return poolBirbeRewardTokens
   }
@@ -936,27 +935,33 @@ export class LockModule implements IModule {
     }
 
     const poolBirbeRewardTokens = new Map<string, string[]>()
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventBribeRewardTokens`) {
-        item.parsedJson.list.contents.forEach((poolTokens: any) => {
-          if (!poolBirbeRewardTokens.has(poolTokens.key)) {
-            poolBirbeRewardTokens.set(poolTokens.key, [])
-          }
+    requireSimulationEvents(simulateRes, 'EventBribeRewardTokens', 'get_voting_bribe_reward_tokens').forEach((item: any) => {
+      item.parsedBcs.list.contents.forEach((poolTokens: any) => {
+        if (!poolBirbeRewardTokens.has(poolTokens.key)) {
+          poolBirbeRewardTokens.set(poolTokens.key, [])
+        }
 
-          poolTokens.value.forEach((token: any) => {
-            poolBirbeRewardTokens.get(poolTokens.key)?.push(token.name)
-          })
+        poolTokens.value.forEach((token: any) => {
+          poolBirbeRewardTokens.get(poolTokens.key)?.push(token.name)
         })
-      }
+      })
     })
     return poolBirbeRewardTokens
   }
 
   async getAllFeeRewards(fee_tokens: Map<LockID, string[]>): Promise<Map<LockID, Map<PoolID, Coin[]>>> {
     let tx = new Transaction()
+    let hasFeeRewardRequest = false
     fee_tokens.forEach((tokens, lock_id) => {
-      tx = this._getFeeRewards(lock_id, tokens, tx)
+      if (tokens.length !== 0) {
+        hasFeeRewardRequest = true
+        tx = this._getFeeRewards(lock_id, tokens, tx)
+      }
     })
+
+    if (!hasFeeRewardRequest) {
+      return new Map<LockID, Map<PoolID, Coin[]>>()
+    }
 
     return await this._parseFeeRewards(tx)
   }
@@ -1002,27 +1007,25 @@ export class LockModule implements IModule {
     }
 
     const poolFeeRewardTokens = new Map<LockID, Map<PoolID, Coin[]>>()
-    simulateRes.events?.forEach((event: any) => {
-      if (extractStructTagFromType(event.type).name === `ClaimableVotingFee`) {
-        const { lock_id } = event.parsedJson
+    requireSimulationEvents(simulateRes, 'ClaimableVotingFee', 'claimable_voting_fee_rewards').forEach((event: any) => {
+      const { lock_id } = event.parsedBcs
 
-        if (!poolFeeRewardTokens.has(lock_id)) {
-          poolFeeRewardTokens.set(lock_id, new Map<PoolID, Coin[]>())
-        }
+      if (!poolFeeRewardTokens.has(lock_id)) {
+        poolFeeRewardTokens.set(lock_id, new Map<PoolID, Coin[]>())
+      }
 
-        event.parsedJson.list.contents.forEach((rewardTokens: any) => {
-          rewardTokens.value.contents.forEach((token: any) => {
-            if (!poolFeeRewardTokens.get(lock_id)?.has(rewardTokens.key.name)) {
-              poolFeeRewardTokens.get(lock_id)?.set(rewardTokens.key.name, [])
-            }
-            poolFeeRewardTokens.get(lock_id)?.get(rewardTokens.key.name)?.push({
-              kind: CoinType.Incentive,
-              token_addr: token.key,
-              amount: token.value,
-            })
+      event.parsedBcs.list.contents.forEach((rewardTokens: any) => {
+        rewardTokens.value.contents.forEach((token: any) => {
+          if (!poolFeeRewardTokens.get(lock_id)?.has(rewardTokens.key.name)) {
+            poolFeeRewardTokens.get(lock_id)?.set(rewardTokens.key.name, [])
+          }
+          poolFeeRewardTokens.get(lock_id)?.get(rewardTokens.key.name)?.push({
+            kind: CoinType.Incentive,
+            token_addr: token.key,
+            amount: token.value,
           })
         })
-      }
+      })
     })
     return poolFeeRewardTokens
   }
@@ -1069,18 +1072,16 @@ export class LockModule implements IModule {
       throw new Error(`getPoolFeeRewards error code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `ClaimableVotingFee`) {
-        item.parsedJson.data.contents.forEach((rewardTokens: any) => {
-          if (!poolFeeRewardTokens.has(rewardTokens.key.name)) {
-            poolFeeRewardTokens.set(rewardTokens.key.name, new Map<string, string>())
-          }
+    requireSimulationEvents(simulateRes, 'ClaimableVotingFee', 'claimable_voting_fee_rewards').forEach((item: any) => {
+      item.parsedBcs.data.contents.forEach((rewardTokens: any) => {
+        if (!poolFeeRewardTokens.has(rewardTokens.key.name)) {
+          poolFeeRewardTokens.set(rewardTokens.key.name, new Map<string, string>())
+        }
 
-          rewardTokens.value.contents.forEach((token: any) => {
-            poolFeeRewardTokens.get(rewardTokens.key.name)?.set(token.key, token.value)
-          })
+        rewardTokens.value.contents.forEach((token: any) => {
+          poolFeeRewardTokens.get(rewardTokens.key.name)?.set(token.key, token.value)
         })
-      }
+      })
     })
     return poolFeeRewardTokens
   }
@@ -1089,19 +1090,35 @@ export class LockModule implements IModule {
   // lock_id => Pool => rewardTokens
   async getAllIncentiveRewards(lock_incentive_tokens: Map<LockID, string[]>): Promise<Map<LockID, Map<PoolID, Coin[]>>> {
     let tx = new Transaction()
+    let hasIncentiveRewardRequest = false
     lock_incentive_tokens.forEach((tokens, lock_id) => {
-      tx = this._getIncentiveRewards(lock_id, tokens, tx)
+      if (tokens.length !== 0) {
+        hasIncentiveRewardRequest = true
+        tx = this._getIncentiveRewards(lock_id, tokens, tx)
+      }
     })
+
+    if (!hasIncentiveRewardRequest) {
+      return new Map<LockID, Map<PoolID, Coin[]>>()
+    }
 
     return await this._parseIncentiveRewards(tx)
   }
 
   _getIncentiveRewards(lock_id: string, incentive_tokens: string[], tx?: Transaction): Transaction {
+    tx = tx || new Transaction()
+    if (incentive_tokens.length === 0) {
+      return tx
+    }
+
     let i = 0
     for (; i + 3 < incentive_tokens.length; i += 3) {
       this._getIncentiveRewardsInner(lock_id, incentive_tokens.slice(i, i + 3), tx)
     }
-    return this._getIncentiveRewardsInner(lock_id, incentive_tokens.slice(i), tx)
+    if (i < incentive_tokens.length) {
+      return this._getIncentiveRewardsInner(lock_id, incentive_tokens.slice(i), tx)
+    }
+    return tx
   }
 
   _getIncentiveRewardsInner(locksId: string, incentive_tokens: string[], tx?: Transaction): Transaction {
@@ -1147,27 +1164,25 @@ export class LockModule implements IModule {
     }
 
     const poolBribeRewardTokens = new Map<LockID, Map<PoolID, Coin[]>>()
-    simulateRes.events?.forEach((event: any) => {
-      if (extractStructTagFromType(event.type).name === `ClaimableVotingBribes`) {
-        const { lock_id } = event.parsedJson
+    requireSimulationEvents(simulateRes, 'ClaimableVotingBribes', 'claimable_voting_bribes').forEach((event: any) => {
+      const { lock_id } = event.parsedBcs
 
-        if (!poolBribeRewardTokens.has(lock_id)) {
-          poolBribeRewardTokens.set(lock_id, new Map<PoolID, Coin[]>())
-        }
+      if (!poolBribeRewardTokens.has(lock_id)) {
+        poolBribeRewardTokens.set(lock_id, new Map<PoolID, Coin[]>())
+      }
 
-        event.parsedJson.list.contents.forEach((rewardTokens: any) => {
-          rewardTokens.value.contents.forEach((token: any) => {
-            if (!poolBribeRewardTokens.get(lock_id)?.has(rewardTokens.key.name)) {
-              poolBribeRewardTokens.get(lock_id)?.set(rewardTokens.key.name, [])
-            }
-            poolBribeRewardTokens.get(lock_id)?.get(rewardTokens.key.name)?.push({
-              kind: CoinType.Incentive,
-              token_addr: token.key,
-              amount: token.value,
-            })
+      event.parsedBcs.list.contents.forEach((rewardTokens: any) => {
+        rewardTokens.value.contents.forEach((token: any) => {
+          if (!poolBribeRewardTokens.get(lock_id)?.has(rewardTokens.key.name)) {
+            poolBribeRewardTokens.get(lock_id)?.set(rewardTokens.key.name, [])
+          }
+          poolBribeRewardTokens.get(lock_id)?.get(rewardTokens.key.name)?.push({
+            kind: CoinType.Incentive,
+            token_addr: token.key,
+            amount: token.value,
           })
         })
-      }
+      })
     })
     return poolBribeRewardTokens
   }
@@ -1182,7 +1197,9 @@ export class LockModule implements IModule {
     for (; i + 3 < incentive_tokens.length; i += 3) {
       await this._getPoolIncentiveRewards(lock_id, incentive_tokens.slice(i, i + 3), poolBribeRewardTokens)
     }
-    await this._getPoolIncentiveRewards(lock_id, incentive_tokens.slice(i), poolBribeRewardTokens)
+    if (i < incentive_tokens.length) {
+      await this._getPoolIncentiveRewards(lock_id, incentive_tokens.slice(i), poolBribeRewardTokens)
+    }
 
     return poolBribeRewardTokens
   }
@@ -1190,6 +1207,9 @@ export class LockModule implements IModule {
   // tokenId => pool => incentive_tokens
   async _getPoolIncentiveRewards(locksId: string, incentive_tokens: string[], poolBribeRewardTokens: Map<string, Map<string, string>>) {
     // tokenId => pool => incentive_tokens
+    if (incentive_tokens.length === 0) {
+      return poolBribeRewardTokens
+    }
     if (incentive_tokens.length > 3) {
       throw Error('Too many tokens')
     }
@@ -1224,18 +1244,16 @@ export class LockModule implements IModule {
       throw new Error(`getPoolIncentiveRewards error code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `ClaimableVotingBribes`) {
-        item.parsedJson.data.contents.forEach((rewardTokens: any) => {
-          if (!poolBribeRewardTokens.has(rewardTokens.key.name)) {
-            poolBribeRewardTokens.set(rewardTokens.key.name, new Map<string, string>())
-          }
+    requireSimulationEvents(simulateRes, 'ClaimableVotingBribes', 'claimable_voting_bribes').forEach((item: any) => {
+      item.parsedBcs.data.contents.forEach((rewardTokens: any) => {
+        if (!poolBribeRewardTokens.has(rewardTokens.key.name)) {
+          poolBribeRewardTokens.set(rewardTokens.key.name, new Map<string, string>())
+        }
 
-          rewardTokens.value.contents.forEach((token: any) => {
-            poolBribeRewardTokens.get(rewardTokens.key.name)?.set(token.key, token.value)
-          })
+        rewardTokens.value.contents.forEach((token: any) => {
+          poolBribeRewardTokens.get(rewardTokens.key.name)?.set(token.key, token.value)
         })
-      }
+      })
     })
     return poolBribeRewardTokens
   }
@@ -1266,18 +1284,16 @@ export class LockModule implements IModule {
     }
 
     const poolBirbeRewardTokens = new Map<string, string[]>()
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventRewardTokens`) {
-        item.parsedJson.list.contents.forEach((poolTokens: any) => {
-          if (!poolBirbeRewardTokens.has(poolTokens.key)) {
-            poolBirbeRewardTokens.set(poolTokens.key, [])
-          }
+    requireSimulationEvents(simulateRes, 'EventRewardTokens', 'get_voting_bribe_reward_tokens_by_pool').forEach((item: any) => {
+      item.parsedBcs.list.contents.forEach((poolTokens: any) => {
+        if (!poolBirbeRewardTokens.has(poolTokens.key)) {
+          poolBirbeRewardTokens.set(poolTokens.key, [])
+        }
 
-          poolTokens.value.forEach((token: any) => {
-            poolBirbeRewardTokens.get(poolTokens.key)?.push(token.name)
-          })
+        poolTokens.value.forEach((token: any) => {
+          poolBirbeRewardTokens.get(poolTokens.key)?.push(token.name)
         })
-      }
+      })
     })
     return poolBirbeRewardTokens
   }
@@ -1305,27 +1321,16 @@ export class LockModule implements IModule {
       sender: simulationAccount.address,
     })
     if (simulateRes.error != null) {
-      console.log(`error code: ${simulateRes.error ?? 'unknown error'}`)
-      return null
+      throw new Error(`lock_voting_stats error code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
-    let res: LockVoteEvent = {
-      lock_id: lockId,
-      last_voted_at: '',
-      pools: [],
-      votes: [],
+    const [lockVotingStatsEvent] = requireSimulationEvents(simulateRes, 'EventLockVotingStats', 'lock_voting_stats')
+    const res: LockVoteEvent = {
+      lock_id: lockVotingStatsEvent.parsedBcs.lock_id,
+      last_voted_at: lockVotingStatsEvent.parsedBcs.last_voted_at,
+      pools: lockVotingStatsEvent.parsedBcs.pools,
+      votes: lockVotingStatsEvent.parsedBcs.votes,
     }
-
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventLockVotingStats`) {
-        res = {
-          lock_id: item.parsedJson.lock_id,
-          last_voted_at: item.parsedJson.last_voted_at,
-          pools: item.parsedJson.pools,
-          votes: item.parsedJson.votes,
-        }
-      }
-    })
     return res
   }
 }

@@ -1,4 +1,6 @@
-import { CoinBalance } from '@mysten/sui/client'
+import type { SuiGrpcClient } from '@mysten/sui/grpc'
+import type { CoinBalance, SuiJsonRpcClient } from '@mysten/sui/jsonRpc'
+import { isValidSuiAddress, normalizeSuiAddress } from '@mysten/sui/utils'
 import { PoolModule } from './modules/poolModule'
 import { PositionModule } from './modules/positionModule'
 import { RewarderModule } from './modules/rewarderModule'
@@ -7,10 +9,11 @@ import { SwapModule } from './modules/swapModule'
 import { LockModule } from './modules/lockModule'
 import { TokenModule } from './modules/tokenModule'
 import { RouterModuleV2 } from './modules/routerModuleV2'
-import { CachedContent, cacheTime24h, extractStructTagFromType, getFutureTime, patchFixSuiObjectId } from './utils'
+import { CachedContent, cacheTime24h, extractStructTagFromType, fixSuiObjectId, getFutureTime } from './utils'
 import { MagmaConfigs, ClmmConfig, Ve33Config, CoinAsset, Package, SuiResource, SuiAddressType, TokenConfig, AlmmConfig } from './types'
 import { ConfigModule } from './modules'
-import { RpcModule } from './modules/rpcModule'
+import { createRpcModule, FullRpcClient } from './modules/rpcModule'
+import type { EndpointPolicy, EventDecoder, PaginationPolicy } from './modules/rpc/types'
 import { GaugeModule } from './modules/gaugeModule'
 import { AlmmModule } from './modules/almm'
 
@@ -19,9 +22,30 @@ import { AlmmModule } from './modules/almm'
  */
 export type SdkOptions = {
   /**
-   * The full URL for interacting with the RPC (Remote Procedure Call) service.
+   * The gRPC fullnode URL. Optional when suiGrpcClient is supplied.
    */
-  fullRpcUrl: string
+  fullRpcUrl?: string
+
+  /** Network used when the SDK constructs clients from URLs. */
+  network?: 'mainnet' | 'testnet'
+
+  /** Existing Sui SDK v2 gRPC client supplied by the application. */
+  suiGrpcClient?: SuiGrpcClient
+
+  /** Optional JSON-RPC fallback for event queries, which are not supported by gRPC. */
+  jsonRpcClient?: SuiJsonRpcClient
+
+  /** Optional JSON-RPC URL used only for event queries. */
+  jsonRpcUrl?: string
+
+  /** Endpoint security policy. HTTPS is required unless local HTTP is explicitly enabled. */
+  endpointPolicy?: EndpointPolicy
+
+  /** Safety bounds for APIs that request all pages. */
+  paginationPolicy?: Partial<PaginationPolicy>
+
+  /** Optional BCS event decoder override, primarily for deterministic tests. */
+  eventDecoder?: EventDecoder
 
   /**
    * Optional URL for the faucet service.
@@ -90,6 +114,50 @@ export type SdkOptions = {
   swapCountUrl?: string
 }
 
+function normalizeProtocolValue<T>(value: T): T {
+  if (typeof value === 'string') {
+    return (/^0x[0-9a-fA-F]{1,64}$/.test(value) ? fixSuiObjectId(value) : value) as T
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeProtocolValue(item)) as T
+  }
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeProtocolValue(item)])) as T
+  }
+  return value
+}
+
+function normalizePackage<T>(value: Package<T> | undefined): Package<T> | undefined {
+  if (!value) return undefined
+  return {
+    ...value,
+    package_id: normalizeProtocolValue(value.package_id),
+    published_at: normalizeProtocolValue(value.published_at),
+    config: value.config === undefined ? undefined : normalizeProtocolValue(value.config),
+  }
+}
+
+/** Copy and normalize only known protocol configuration fields; clients and URLs are never traversed. */
+function normalizeSdkOptions(options: SdkOptions): SdkOptions {
+  return {
+    ...options,
+    simulationAccount: {
+      ...options.simulationAccount,
+      address: normalizeProtocolValue(options.simulationAccount.address),
+    },
+    faucet: normalizePackage(options.faucet),
+    token: normalizePackage(options.token),
+    magma_config: normalizePackage(options.magma_config)!,
+    ve33: normalizePackage(options.ve33)!,
+    clmm_pool: normalizePackage(options.clmm_pool)!,
+    almm_pool: normalizePackage(options.almm_pool)!,
+    distribution: normalizePackage(options.distribution)!,
+    integrate: normalizePackage(options.integrate)!,
+    deepbook: normalizePackage(options.deepbook)!,
+    deepbook_endpoint_v2: normalizePackage(options.deepbook_endpoint_v2)!,
+  }
+}
+
 /**
  * The entry class of MagmaClmmSDK, which is almost responsible for all interactions with CLMM.
  */
@@ -99,7 +167,7 @@ export class MagmaClmmSDK {
   /**
    * RPC provider on the SUI chain
    */
-  protected _rpcModule: RpcModule
+  protected _rpcModule: FullRpcClient
 
   /**
    * Provide interact with clmm pools with a pool router interface.
@@ -162,9 +230,16 @@ export class MagmaClmmSDK {
   protected _senderAddress = ''
 
   constructor(options: SdkOptions) {
-    this._sdkOptions = options
-    this._rpcModule = new RpcModule({
-      url: options.fullRpcUrl,
+    this._sdkOptions = normalizeSdkOptions(options)
+    this._rpcModule = createRpcModule({
+      client: this._sdkOptions.suiGrpcClient,
+      url: this._sdkOptions.fullRpcUrl,
+      network: this._sdkOptions.network,
+      jsonRpcClient: this._sdkOptions.jsonRpcClient,
+      jsonRpcUrl: this._sdkOptions.jsonRpcUrl,
+      endpointPolicy: this._sdkOptions.endpointPolicy,
+      paginationPolicy: this._sdkOptions.paginationPolicy,
+      eventDecoder: this._sdkOptions.eventDecoder,
     })
 
     this._swap = new SwapModule(this)
@@ -178,8 +253,6 @@ export class MagmaClmmSDK {
     this._router_v2 = new RouterModuleV2(this)
     this._token = new TokenModule(this)
     this._config = new ConfigModule(this)
-
-    patchFixSuiObjectId(this._sdkOptions)
   }
 
   /**
@@ -195,7 +268,10 @@ export class MagmaClmmSDK {
    * @param {string} value - The new sender address value.
    */
   set senderAddress(value: string) {
-    this._senderAddress = value
+    if (value !== '' && !isValidSuiAddress(value)) {
+      throw new Error('senderAddress must be a valid Sui address')
+    }
+    this._senderAddress = value === '' ? '' : normalizeSuiAddress(value)
   }
 
   /**
@@ -221,9 +297,9 @@ export class MagmaClmmSDK {
 
   /**
    * Getter for the fullClient property.
-   * @returns {RpcModule} The fullClient property value.
+   * @returns {FullRpcClient} The gRPC-backed full client.
    */
-  get fullClient(): RpcModule {
+  get fullClient(): FullRpcClient {
     return this._rpcModule
   }
 

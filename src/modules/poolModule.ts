@@ -1,7 +1,18 @@
-import { DynamicFieldPage, SuiObjectResponse, SuiTransactionBlockResponse } from '@mysten/sui/client'
+import { DynamicFieldPage, SuiObjectResponse, SuiTransactionBlockResponse } from '@mysten/sui/jsonRpc'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { Transaction } from '@mysten/sui/transactions'
-import { CachedContent, cacheTime24h, cacheTime5min, checkInvalidSuiAddress, getFutureTime } from '../utils'
+import {
+  asUintN,
+  buildPool,
+  buildPositionReward,
+  buildTickData,
+  buildTickDataByEvent,
+  CachedContent,
+  cacheTime24h,
+  cacheTime5min,
+  checkInvalidSuiAddress,
+  getFutureTime,
+} from '../utils'
 import {
   CreatePoolAddLiquidityParams,
   CreatePoolParams,
@@ -16,7 +27,6 @@ import {
 } from '../types'
 import { TransactionUtil } from '../utils/transaction-util'
 import { tickScore } from '../math'
-import { asUintN, buildPool, buildPositionReward, buildTickData, buildTickDataByEvent } from '../utils/common'
 import { extractStructTagFromType, isSortedSymbols } from '../utils/contracts'
 import { TickData } from '../types/clmmpool'
 import {
@@ -46,6 +56,22 @@ type GetTickParams = {
   start: number[]
   limit: number
 } & FetchParams
+
+function simulationEventsByName(simulateRes: any, eventName: string): any[] {
+  return (
+    simulateRes.events?.filter((item: any) => {
+      return extractStructTagFromType(item.type).name === eventName
+    }) ?? []
+  )
+}
+
+function requireSimulationEvents(simulateRes: any, eventName: string, context: string): any[] {
+  const events = simulationEventsByName(simulateRes, eventName)
+  if (events.length === 0) {
+    throw new ClmmpoolsError(`${context} simulation did not emit ${eventName}`, ConfigErrorCode.InvalidConfig)
+  }
+  return events
+}
 
 /**
  * Helper class to help interact with clmm pools with a pool router interface.
@@ -539,6 +565,7 @@ export class PoolModule implements IModule {
     }
 
     const tx = new Transaction()
+    tx.setSender(this.sdk.senderAddress)
     const { integrate, clmm_pool } = this.sdk.sdkOptions
     const eventConfig = getPackagerConfigs(clmm_pool)
     const globalPauseStatusObjectId = eventConfig.global_config_id
@@ -642,12 +669,10 @@ export class PoolModule implements IModule {
       )
     }
 
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `FetchTicksResultEvent`) {
-        item.parsedJson.ticks.forEach((tick: any) => {
-          ticks.push(buildTickDataByEvent(tick))
-        })
-      }
+    requireSimulationEvents(simulateRes, 'FetchTicksResultEvent', 'getTicks').forEach((item: any) => {
+      item.parsedBcs.ticks.forEach((tick: any) => {
+        ticks.push(buildTickDataByEvent(tick))
+      })
     })
     return ticks
   }
@@ -696,13 +721,11 @@ export class PoolModule implements IModule {
       }
 
       const positionRewards: PositionReward[] = []
-      simulateRes?.events?.forEach((item: any) => {
-        if (extractStructTagFromType(item.type).name === `FetchPositionsEvent`) {
-          item.parsedJson.positions.forEach((item: any) => {
-            const positionReward = buildPositionReward(item)
-            positionRewards.push(positionReward)
-          })
-        }
+      requireSimulationEvents(simulateRes, 'FetchPositionsEvent', 'fetchPositionRewardList').forEach((item: any) => {
+        item.parsedBcs.positions.forEach((item: any) => {
+          const positionReward = buildPositionReward(item)
+          positionRewards.push(positionReward)
+        })
       })
 
       allPosition.push(...positionRewards)

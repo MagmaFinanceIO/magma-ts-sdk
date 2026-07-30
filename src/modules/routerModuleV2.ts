@@ -1,3 +1,4 @@
+import axios, { AxiosRequestConfig } from 'axios'
 import BN from 'bn.js'
 import Decimal from 'decimal.js'
 import { v4 as uuidv4 } from 'uuid'
@@ -5,8 +6,7 @@ import { MagmaClmmSDK } from '../sdk'
 import { IModule } from '../interfaces/IModule'
 import { PreSwapLpChangeParams, PreSwapWithMultiPoolParams } from '../types'
 import { TickMath, ZERO } from '../math'
-import axios, { AxiosRequestConfig } from 'axios'
-import { ClmmpoolsError, MathErrorCode, RouterErrorCode } from '../errors/errors'
+import { ClmmpoolsError, RouterErrorCode } from '../errors/errors'
 
 export type BasePath = {
   direction: boolean

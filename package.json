@@ -1,17 +1,21 @@
 {
   "name": "@magmaprotocol/magma-ts-sdk",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "SDK for magma swap and liquidity",
   "typings": "dist/index.d.ts",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "scripts": {
-    "test": "jest",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:sui-v2": "npm test -- --runInBand tests/rpc_adapter.test.ts tests/sui_v2_grpc.test.ts tests/parser_compatibility.test.ts tests/move_bcs_decoder.test.ts tests/devinspect_consumer_failures.test.ts tests/devinspect_event_contracts.test.ts tests/config_defaults.test.ts tests/test_signing_credentials.test.ts tests/ts_sdk_pool_v2.test.ts",
+    "test:sui-v2:live": "RUN_LIVE_SUI_TESTS=1 npm test -- --runInBand tests/sui_v2_live_position.test.ts",
+    "test:typecheck": "tsc -p tsconfig.tests.json",
+    "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
     "lint:fix": "eslint src/*.ts src/**/*.ts --fix",
+    "verify:sui-v2": "npm run test:typecheck && npm run lint && npm run test:sui-v2",
     "build": "rm -rf dist/ && tsc",
     "build:calc_almm": "bash calc_almm/build.sh",
     "testbuild": "tsc",
-    "prepare": "husky install",
     "build:tsup": "npm run build:clean && npm run _build:node",
     "build:clean": "rm -rf dist",
     "_build:browser": "tsup --platform browser --format iife --global-name magmaAptosSDK --minify",
@@ -21,19 +25,14 @@
     "prepublishOnly": "rm -rf dist/ && npm run build:tsup"
   },
   "files": [
-    ".editorconfig",
     "LICENSE",
     "README.md",
-    "dist",
-    "jest.config.js",
-    "package.json",
-    "tsconfig.tsbuildinfo",
-    "tsup.config.js",
-    "version.js"
+    "CHANGELOG.md",
+    "dist"
   ],
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/MagmaFinanceIO/magma-ts-sdk.git"
   },
   "publishConfig": {
     "access": "public",
@@ -44,12 +43,10 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@commitlint/cli": "^17.1.2",
-    "@mysten/bcs": "^1.6.4",
-    "@mysten/sui": "^1.35.0",
+    "@mysten/sui": "2.16.3",
     "@types/cors": "^2.8.13",
     "@types/jest": "^29.0.0",
     "@types/lossless-json": "^1.0.1",
-    "@types/uuid": "^9.0.2",
     "@typescript-eslint/eslint-plugin": "^5.36.1",
     "@typescript-eslint/parser": "^5.36.1",
     "bip39-light": "^1.0.7",
@@ -64,13 +61,12 @@
     "prettier": "^2.7.1",
     "standard-version": "^9.5.0",
     "ts-jest": "^29.0.0",
-    "tsup": "^6.6.2",
+    "tsup": "^8.5.1",
     "typedoc": "^0.27.4",
     "typescript": "^5.4.5"
   },
   "peerDependencies": {
-    "@mysten/bcs": "^1.7.0",
-    "@mysten/sui": "^1.35.0"
+    "@mysten/sui": "^2.16.3"
   },
   "dependencies": {
     "@magmaprotocol/calc_almm": "^0.2.6",
@@ -86,8 +82,9 @@
     "js-sha3": "^0.8.0",
     "superstruct": "^1.0.3",
     "tiny-invariant": "^1.1.0",
+    "tslib": "^2.8.1",
     "tweetnacl": "^1.0.3",
-    "uuid": "^9.0.0"
+    "uuid": "^11.1.1"
   },
   "lint-staged": {
     "src/**.{ts,js}": "eslint --fix",

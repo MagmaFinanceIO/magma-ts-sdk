@@ -66,6 +66,8 @@ export type DataPage<T> = {
   data: T[]
   nextCursor?: any
   hasNextPage: boolean
+  /** True when a configured safety limit stopped an otherwise continuing query. */
+  truncated?: boolean
 }
 
 /**
@@ -74,6 +76,14 @@ export type DataPage<T> = {
 export type PageQuery = {
   cursor?: any
   limit?: number | null
+  /** Fetch multiple pages instead of the historical single-page behavior. */
+  all?: boolean
+  /** Safety bound used when all=true. */
+  maxPages?: number
+  /** Safety bound used when all=true. */
+  maxItems?: number
+  /** Abort in-flight pagination. */
+  signal?: AbortSignal
 }
 
 /**

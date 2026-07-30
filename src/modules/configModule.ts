@@ -1,4 +1,4 @@
-import { SuiObjectResponse } from '@mysten/sui/client'
+import { SuiObjectResponse } from '@mysten/sui/jsonRpc'
 import { normalizeSuiObjectId } from '@mysten/sui/utils'
 import { Base64 } from 'js-base64'
 import { ClmmpoolsError, ConfigErrorCode } from '../errors/errors'

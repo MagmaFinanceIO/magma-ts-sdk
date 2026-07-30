@@ -1,7 +1,5 @@
-import { getFullnodeUrl } from '@mysten/sui/client'
-import MagmaClmmSDK, { SdkOptions } from '../main'
-
-
+import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc'
+import { MagmaClmmSDK, type SdkOptions } from '../sdk'
 
 const SDKConfig = {
   clmmConfig: {
@@ -10,29 +8,34 @@ const SDKConfig = {
     global_vault_id: '0xa7e1102f222b6eb81ccc8a126e7feb2353342be9df6f6646a77c4519da29c071',
     admin_cap_id: '',
   },
-  magmaConfig: {
-  },
   almmConfig: {
     factory: '0xedb456e93e423dd75a8ddebedd9974bb661195043027e32ce01649d6ccee74cf',
     rewarder_global_vault: '0xe039c948f91be3ddcb1cb5b7ecea6fa63997898faeac1d94239298e54f8d953e',
-  }
+  },
 }
 // mainnet
 export const clmmMainnet: SdkOptions = {
-  fullRpcUrl: getFullnodeUrl('mainnet'),
+  fullRpcUrl: getJsonRpcFullnodeUrl('mainnet'),
+  network: 'mainnet',
   simulationAccount: {
     address: '0x326ce9894f08dcaa337fa232641cc34db957aec9ff6614c1186bc9a7508df0bb',
   },
   magma_config: {
     package_id: '0x95b8d278b876cae22206131fb9724f701c9444515813042f54f0a426c9a3bc2f',
     published_at: '0x95b8d278b876cae22206131fb9724f701c9444515813042f54f0a426c9a3bc2f',
-    //@ts-ignore
-    config: SDKConfig.magmaConfig,
+  },
+  ve33: {
+    package_id: '',
+    published_at: '',
   },
   almm_pool: {
     package_id: '0x532bf64e6f0bf702353387d53a28a3239249f47c39d58954f2c0a1f9f4436c20',
     published_at: '0x8800c3f7496a09dd62b0850b178b73ada2aeaf34d076dcd1c1bbd0da0015550d',
     config: SDKConfig.almmConfig,
+  },
+  distribution: {
+    package_id: '',
+    published_at: '',
   },
   clmm_pool: {
     package_id: '0x4a35d3dfef55ed3631b7158544c6322a23bc434fe4fca1234cb680ce0505f82d',

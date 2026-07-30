@@ -1,7 +1,7 @@
-import { TransactionArgument, Transaction } from '@mysten/sui/transactions'
+import { Transaction } from '@mysten/sui/transactions'
 import { DeepbookUtils, TransactionUtil } from '../src'
 import { SdkEnv, TestnetCoin, buildSdk, buildTestAccount } from './data/init_test_data'
-import { assert } from 'console'
+import assert from 'node:assert/strict'
 
 describe('Router External Module', () => {
   const sdk = buildSdk(SdkEnv.testnet)
@@ -33,8 +33,8 @@ describe('Router External Module', () => {
   test('create account cap', async () => {
     let tx = new Transaction()
     const createAccountCapResult = DeepbookUtils.createAccountCap(sdk.senderAddress, sdk.sdkOptions, tx, false)
-    const cap = createAccountCapResult[0] as TransactionArgument
-    tx = createAccountCapResult[1] as Transaction
+    const cap = createAccountCapResult[0]
+    tx = createAccountCapResult[1]
     if (sdk.senderAddress.length === 0) {
       throw Error('this config sdk senderAddress is empty')
     }

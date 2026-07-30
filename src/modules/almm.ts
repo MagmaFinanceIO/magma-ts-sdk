@@ -1,12 +1,6 @@
 import { Transaction } from '@mysten/sui/transactions'
-import { SuiObjectResponse } from '@mysten/sui/client'
-import {
-  get_price_x128_from_real_id,
-  get_real_id,
-  get_real_id_from_price_x128,
-  get_storage_id_from_real_id,
-} from '@magmaprotocol/calc_almm'
-import Decimal from 'decimal.js'
+import { SuiObjectResponse } from '@mysten/sui/jsonRpc'
+import { get_real_id, get_storage_id_from_real_id } from '@magmaprotocol/calc_almm'
 import BN from 'bn.js'
 import { BinMath, MathUtil } from '../math'
 import {
@@ -21,8 +15,6 @@ import {
   FetchPairParams,
   EventPairParams,
   AlmmPoolInfo,
-  AlmmBurnPositionParams,
-  AlmmShrinkPosition,
   AlmmCollectRewardParams,
   AlmmCollectFeeParams,
   AlmmEventEarnedFees,
@@ -33,8 +25,6 @@ import {
   AlmmCreatePairAddLiquidityParams,
   AlmmPosition,
   AlmmPositionInfo,
-  MintByStrategyParams,
-  RaiseByStrategyParams,
   EventCreatePair,
 } from '../types/almm'
 import { DataPage, PaginationArgs } from '../types/sui'
@@ -53,6 +43,22 @@ import { CLOCK_ADDRESS, AlmmScript, getPackagerConfigs, SuiResource, Rewarder } 
 import { MagmaClmmSDK } from '../sdk'
 import { IModule } from '../interfaces/IModule'
 import { ClmmpoolsError, PositionErrorCode, TypesErrorCode } from '../errors/errors'
+
+function simulationEventsByName(simulateRes: any, eventName: string): any[] {
+  return (
+    simulateRes.events?.filter((item: any) => {
+      return extractStructTagFromType(item.type).name === eventName
+    }) ?? []
+  )
+}
+
+function requireSimulationEvents(simulateRes: any, eventName: string, context: string): any[] {
+  const events = simulationEventsByName(simulateRes, eventName)
+  if (events.length === 0) {
+    throw new Error(`${context} simulation did not emit ${eventName}`)
+  }
+  return events
+}
 
 export class AlmmModule implements IModule {
   protected _sdk: MagmaClmmSDK
@@ -184,28 +190,8 @@ export class AlmmModule implements IModule {
       throw new Error(`fetchPairParams error code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
-    let res: EventPairParams = {
-      base_factor: 0,
-      filter_period: 0,
-      decay_period: 0,
-      reduction_factor: 0,
-      variable_fee_control: 0,
-      protocol_share: 0,
-      max_volatility_accumulator: 0,
-      volatility_accumulator: 0,
-      volatility_reference: 0,
-      index_reference: 0,
-      time_of_last_update: 0,
-      oracle_index: 0,
-      active_index: 0,
-      protocol_variable_share: 0,
-    }
-    simulateRes.events?.forEach((item: any) => {
-      console.log(extractStructTagFromType(item.type).name)
-      if (extractStructTagFromType(item.type).name === `EventPairParams`) {
-        res = item.parsedJson.params
-      }
-    })
+    const [pairParamsEvent] = requireSimulationEvents(simulateRes, 'EventPairParams', 'fetchPairParams')
+    const res = pairParamsEvent.parsedBcs.params
 
     return res
   }
@@ -240,7 +226,6 @@ export class AlmmModule implements IModule {
     })
     return tx
   }
-
 
   // // Create a position by percent
   // async mintPercent(params: MintPercentParams): Promise<Transaction> {
@@ -495,13 +480,9 @@ export class AlmmModule implements IModule {
       throw new Error(`swap code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
-    let res: EventBin[] = []
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventFetchBins`) {
-        const { bins } = item.parsedJson
-        res = bins
-      }
-    })
+    const [fetchBinsEvent] = requireSimulationEvents(simulateRes, 'EventFetchBins', 'fetchBins')
+    const { bins } = fetchBinsEvent.parsedBcs
+    const res: EventBin[] = bins
     res.forEach((bin) => {
       bin.real_bin_id = get_real_id(Number(bin.storage_id))
     })
@@ -703,51 +684,72 @@ export class AlmmModule implements IModule {
         throw new Error(`fetchPositionLiquidity error code: ${simulateRes.error ?? 'unknown error'}`)
       }
 
-      simulateRes.events?.forEach((item: any) => {
-        if (extractStructTagFromType(item.type).name === `EventPositionLiquidity`) {
-          positionsLiquidityRes.push({
-            position_id: item.parsedJson.position_id,
-            shares: item.parsedJson.shares,
-            liquidity: item.parsedJson.liquidity,
-            x_equivalent: item.parsedJson.x_equivalent,
-            y_equivalent: item.parsedJson.y_equivalent,
-            bin_real_ids: (item.parsedJson.bin_ids as number[]).map((id) => get_real_id(id)),
-            bin_x_eq: item.parsedJson.bin_x_eq,
-            bin_y_eq: item.parsedJson.bin_y_eq,
-            bin_liquidity: item.parsedJson.bin_liquidity,
-          })
-        }
-        if (extractStructTagFromType(item.type).name === `EventEarnedFees`) {
-          positionsFeesRes.push({
-            position_id: item.parsedJson.position_id,
-            x: item.parsedJson.x.name,
-            y: item.parsedJson.y.name,
-            fee_x: item.parsedJson.fee_x,
-            fee_y: item.parsedJson.fee_y,
-          })
-        }
-        if (extractStructTagFromType(item.type).name === `EventEarnedRewards`) {
-          positionsRewardsRes.push({
-            position_id: item.parsedJson.position_id,
-            reward: [item.parsedJson.reward.name],
-            amount: [item.parsedJson.amount],
-          })
-        }
-        if (extractStructTagFromType(item.type).name === `EventEarnedRewards2`) {
-          positionsRewardsRes.push({
-            position_id: item.parsedJson.position_id,
-            reward: [item.parsedJson.reward1.name, item.parsedJson.reward2.name],
-            amount: [item.parsedJson.amount1, item.parsedJson.amount2],
-          })
-        }
-        if (extractStructTagFromType(item.type).name === `EventEarnedRewards3`) {
-          positionsRewardsRes.push({
-            position_id: item.parsedJson.position_id,
-            reward: [item.parsedJson.reward1.name, item.parsedJson.reward2.name, item.parsedJson.reward3.name],
-            amount: [item.parsedJson.amount1, item.parsedJson.amount2, item.parsedJson.amount3],
-          })
-        }
+      const positionLiquidityEvents = simulationEventsByName(simulateRes, 'EventPositionLiquidity')
+      if (positionLiquidityEvents.length === 0) {
+        throw new Error('getUserPositionInfo simulation did not emit EventPositionLiquidity')
+      }
+      positionLiquidityEvents.forEach((item: any) => {
+        positionsLiquidityRes.push({
+          position_id: item.parsedBcs.position_id,
+          shares: item.parsedBcs.shares,
+          liquidity: item.parsedBcs.liquidity,
+          x_equivalent: item.parsedBcs.x_equivalent,
+          y_equivalent: item.parsedBcs.y_equivalent,
+          bin_real_ids: (item.parsedBcs.bin_ids as number[]).map((id) => get_real_id(id)),
+          bin_x_eq: item.parsedBcs.bin_x_eq,
+          bin_y_eq: item.parsedBcs.bin_y_eq,
+          bin_liquidity: item.parsedBcs.bin_liquidity,
+        })
       })
+
+      const earnedFeesEvents = simulationEventsByName(simulateRes, 'EventEarnedFees')
+      if (earnedFeesEvents.length === 0) {
+        throw new Error('getUserPositionInfo simulation did not emit EventEarnedFees')
+      }
+      earnedFeesEvents.forEach((item: any) => {
+        positionsFeesRes.push({
+          position_id: item.parsedBcs.position_id,
+          x: item.parsedBcs.x.name,
+          y: item.parsedBcs.y.name,
+          fee_x: item.parsedBcs.fee_x,
+          fee_y: item.parsedBcs.fee_y,
+        })
+      })
+
+      const expectedRewards = pool_reward_coins.has(item.pool) && pool_reward_coins.get(item.pool)?.length !== 0
+      if (expectedRewards) {
+        const earnedRewardsEvents = [
+          ...simulationEventsByName(simulateRes, 'EventEarnedRewards'),
+          ...simulationEventsByName(simulateRes, 'EventEarnedRewards2'),
+          ...simulationEventsByName(simulateRes, 'EventEarnedRewards3'),
+        ]
+        if (earnedRewardsEvents.length === 0) {
+          throw new Error('getUserPositionInfo simulation did not emit EventEarnedRewards')
+        }
+        earnedRewardsEvents.forEach((item: any) => {
+          if (extractStructTagFromType(item.type).name === `EventEarnedRewards`) {
+            positionsRewardsRes.push({
+              position_id: item.parsedBcs.position_id,
+              reward: [item.parsedBcs.reward.name],
+              amount: [item.parsedBcs.amount],
+            })
+          }
+          if (extractStructTagFromType(item.type).name === `EventEarnedRewards2`) {
+            positionsRewardsRes.push({
+              position_id: item.parsedBcs.position_id,
+              reward: [item.parsedBcs.reward1.name, item.parsedBcs.reward2.name],
+              amount: [item.parsedBcs.amount1, item.parsedBcs.amount2],
+            })
+          }
+          if (extractStructTagFromType(item.type).name === `EventEarnedRewards3`) {
+            positionsRewardsRes.push({
+              position_id: item.parsedBcs.position_id,
+              reward: [item.parsedBcs.reward1.name, item.parsedBcs.reward2.name, item.parsedBcs.reward3.name],
+              amount: [item.parsedBcs.amount1, item.parsedBcs.amount2, item.parsedBcs.amount3],
+            })
+          }
+        })
+      }
     }
 
     const out = []
@@ -782,7 +784,7 @@ export class AlmmModule implements IModule {
     }
 
     // adapter new/old bin format
-    let bin_real_ids = [];
+    let bin_real_ids = []
     if (fields.bin_count) {
       bin_real_ids = new Array(fields.bin_count).fill(1).map((_, index) => get_real_id(fields.bin_start + index))
     } else {
@@ -871,20 +873,18 @@ export class AlmmModule implements IModule {
     }
 
     const out: EventPositionLiquidity[] = []
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventPositionLiquidity`) {
-        out.push({
-          position_id: item.parsedJson.position_id,
-          shares: item.parsedJson.shares,
-          liquidity: item.parsedJson.liquidity,
-          x_equivalent: item.parsedJson.x_equivalent,
-          y_equivalent: item.parsedJson.y_equivalent,
-          bin_real_ids: (item.parsedJson.bin_ids as number[]).map((id) => get_real_id(id)),
-          bin_x_eq: item.parsedJson.bin_x_eq,
-          bin_y_eq: item.parsedJson.bin_y_eq,
-          bin_liquidity: item.parsedJson.bin_liquidity,
-        })
-      }
+    requireSimulationEvents(simulateRes, 'EventPositionLiquidity', 'fetchPositionLiquidity').forEach((item: any) => {
+      out.push({
+        position_id: item.parsedBcs.position_id,
+        shares: item.parsedBcs.shares,
+        liquidity: item.parsedBcs.liquidity,
+        x_equivalent: item.parsedBcs.x_equivalent,
+        y_equivalent: item.parsedBcs.y_equivalent,
+        bin_real_ids: (item.parsedBcs.bin_ids as number[]).map((id) => get_real_id(id)),
+        bin_x_eq: item.parsedBcs.bin_x_eq,
+        bin_y_eq: item.parsedBcs.bin_y_eq,
+        bin_liquidity: item.parsedBcs.bin_liquidity,
+      })
     })
     return out
   }
@@ -911,26 +911,16 @@ export class AlmmModule implements IModule {
       throw new Error(`getPairLiquidity error code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
+    const [pairLiquidityEvent] = requireSimulationEvents(simulateRes, 'EventPositionLiquidity', 'getPairLiquidity')
     const out: EventPairLiquidity = {
-      shares: 0,
-      liquidity: 0,
-      x: 0,
-      y: 0,
-      bin_ids: [],
-      bin_x: [],
-      bin_y: [],
+      shares: pairLiquidityEvent.parsedBcs.shares,
+      liquidity: pairLiquidityEvent.parsedBcs.liquidity,
+      x: pairLiquidityEvent.parsedBcs.x,
+      y: pairLiquidityEvent.parsedBcs.y,
+      bin_ids: pairLiquidityEvent.parsedBcs.bin_ids,
+      bin_x: pairLiquidityEvent.parsedBcs.bin_x,
+      bin_y: pairLiquidityEvent.parsedBcs.bin_y,
     }
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventPositionLiquidity`) {
-        out.shares = item.parsedJson.shares
-        out.liquidity = item.parsedJson.liquidity
-        out.x = item.parsedJson.x
-        out.y = item.parsedJson.y
-        out.bin_ids = item.bin_ids
-        out.bin_x = item.bin_x
-        out.bin_y = item.bin_y
-      }
-    })
     return out
   }
 
@@ -951,6 +941,10 @@ export class AlmmModule implements IModule {
   }
 
   private async getEarnedFees(params: AlmmCollectFeeParams[]): Promise<AlmmEventEarnedFees[]> {
+    if (params.length === 0) {
+      return []
+    }
+
     let tx = new Transaction()
     for (const param of params) {
       tx = await this._getEarnedFees(param, tx)
@@ -984,26 +978,29 @@ export class AlmmModule implements IModule {
     if (simulateRes.error != null) {
       throw new Error(`fetchPairRewards error code: ${simulateRes.error ?? 'unknown error'}`)
     }
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventEarnedFees`) {
-        out.push({
-          position_id: item.parsedJson.position_id,
-          x: item.parsedJson.x.name,
-          y: item.parsedJson.y.name,
-          fee_x: item.parsedJson.fee_x,
-          fee_y: item.parsedJson.fee_y,
-        })
-      }
+    requireSimulationEvents(simulateRes, 'EventEarnedFees', 'fetchPairRewards').forEach((item: any) => {
+      out.push({
+        position_id: item.parsedBcs.position_id,
+        x: item.parsedBcs.x.name,
+        y: item.parsedBcs.y.name,
+        fee_x: item.parsedBcs.fee_x,
+        fee_y: item.parsedBcs.fee_y,
+      })
     })
     return out
   }
 
   async getEarnedRewards(params: AlmmRewardsParams[]): Promise<AlmmEventEarnedRewards[]> {
     let tx = new Transaction()
+    let hasRewardRequest = false
     for (const param of params) {
       if (param.rewards_token.length !== 0) {
+        hasRewardRequest = true
         tx = await this._getEarnedRewards(param, tx)
       }
+    }
+    if (!hasRewardRequest) {
+      return []
     }
     return this._parseEarnedRewards(tx)
   }
@@ -1040,24 +1037,32 @@ export class AlmmModule implements IModule {
     if (simulateRes.error != null) {
       throw new Error(`getEarnedRewards error code: ${simulateRes.error ?? 'unknown error'}`)
     }
-    simulateRes.events?.forEach((item: any) => {
+    const earnedRewardEvents = [
+      ...simulationEventsByName(simulateRes, 'EventEarnedRewards'),
+      ...simulationEventsByName(simulateRes, 'EventEarnedRewards2'),
+      ...simulationEventsByName(simulateRes, 'EventEarnedRewards3'),
+    ]
+    if (earnedRewardEvents.length === 0) {
+      throw new Error('getEarnedRewards simulation did not emit EventEarnedRewards')
+    }
+    earnedRewardEvents.forEach((item: any) => {
       if (extractStructTagFromType(item.type).name === `EventEarnedRewards`) {
         res.push({
-          position_id: item.parsedJson.position_id,
-          reward: [item.parsedJson.reward.name],
-          amount: [item.parsedJson.amount],
+          position_id: item.parsedBcs.position_id,
+          reward: [item.parsedBcs.reward.name],
+          amount: [item.parsedBcs.amount],
         })
       } else if (extractStructTagFromType(item.type).name === `EventEarnedRewards2`) {
         res.push({
-          position_id: item.parsedJson.position_id,
-          reward: [item.parsedJson.reward1.name, item.parsedJson.reward2.name],
-          amount: [item.parsedJson.amount1, item.parsedJson.amount2],
+          position_id: item.parsedBcs.position_id,
+          reward: [item.parsedBcs.reward1.name, item.parsedBcs.reward2.name],
+          amount: [item.parsedBcs.amount1, item.parsedBcs.amount2],
         })
       } else if (extractStructTagFromType(item.type).name === `EventEarnedRewards3`) {
         res.push({
-          position_id: item.parsedJson.position_id,
-          reward: [item.parsedJson.reward1.name, item.parsedJson.reward2.name, item.parsedJson.reward3.name],
-          amount: [item.parsedJson.amount1, item.parsedJson.amount2, item.parsedJson.amount3],
+          position_id: item.parsedBcs.position_id,
+          reward: [item.parsedBcs.reward1.name, item.parsedBcs.reward2.name, item.parsedBcs.reward3.name],
+          amount: [item.parsedBcs.amount1, item.parsedBcs.amount2, item.parsedBcs.amount3],
         })
       }
     })
@@ -1066,6 +1071,10 @@ export class AlmmModule implements IModule {
 
   // return pool_id => reward_tokens
   async getPairRewarders(params: GetPairRewarderParams[]): Promise<Map<string, string[]>> {
+    if (params.length === 0) {
+      return new Map<string, string[]>()
+    }
+
     let tx = new Transaction()
     for (const param of params) {
       tx = await this._getPairRewarders(param, tx)
@@ -1100,20 +1109,18 @@ export class AlmmModule implements IModule {
     if (simulateRes.error != null) {
       throw new Error(`getPairReward error code: ${simulateRes.error ?? 'unknown error'}`)
     }
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventPairRewardTypes`) {
-        const pairRewards: AlmmEventPairRewardTypes = {
-          pair_id: '',
-          tokens: [],
-        }
-
-        pairRewards.pair_id = item.parsedJson.pair_id
-        item.parsedJson.tokens.forEach((token: any) => {
-          pairRewards.tokens.push(token.name)
-        })
-
-        out.set(pairRewards.pair_id, pairRewards.tokens)
+    requireSimulationEvents(simulateRes, 'EventPairRewardTypes', 'getPairReward').forEach((item: any) => {
+      const pairRewards: AlmmEventPairRewardTypes = {
+        pair_id: '',
+        tokens: [],
       }
+
+      pairRewards.pair_id = item.parsedBcs.pair_id
+      item.parsedBcs.tokens.forEach((token: any) => {
+        pairRewards.tokens.push(token.name)
+      })
+
+      out.set(pairRewards.pair_id, pairRewards.tokens)
     })
     return out
   }

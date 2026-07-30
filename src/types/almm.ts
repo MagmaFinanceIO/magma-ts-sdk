@@ -1,5 +1,5 @@
 import BN from 'bn.js'
-import { NFT, SuiAddressType, SuiObjectIdType } from './sui'
+import { SuiAddressType, SuiObjectIdType } from './sui'
 import { Rewarder } from './clmm_type'
 
 export type FetchPairParams = {

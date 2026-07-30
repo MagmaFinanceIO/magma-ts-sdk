@@ -714,12 +714,22 @@ export class RouterModule implements IModule {
       sender: simulationAccount.address,
     })
 
+    if (simulateRes.error != null) {
+      throw new ClmmpoolsError(
+        `pre router swap simulation failed: ${simulateRes.error.code}, ${simulateRes.error.message}`,
+        RouterErrorCode.InvalidTransactionBuilder
+      )
+    }
+
     const valueData: any = simulateRes.events?.filter((item: any) => {
       return (
         extractStructTagFromType(item.type).name === `CalculatedRouterSwapResultEvent` ||
         extractStructTagFromType(item.type).name === `ExpectSwapResultEvent`
       )
     })
+    if (params.length === 0) {
+      return null
+    }
     if (valueData.length === 0) {
       return null
     }
@@ -728,12 +738,12 @@ export class RouterModule implements IModule {
     let tempIndex = 0
 
     for (let i = 0; i < valueData.length; i += 1) {
-      if (valueData[i].parsedJson.data.is_exceed) {
+      if (valueData[i].parsedBcs.data.is_exceed) {
         continue
       }
 
       if (params[0].byAmountIn) {
-        const amount = new BN(valueData[i].parsedJson.data.amount_out)
+        const amount = new BN(valueData[i].parsedBcs.data.amount_out)
         if (amount.gt(tempMaxAmount)) {
           tempIndex = i
           tempMaxAmount = amount
@@ -741,8 +751,8 @@ export class RouterModule implements IModule {
       } else {
         const amount =
           params[i].stepNums > 1
-            ? new BN(valueData[i].parsedJson.data.amount_in)
-            : new BN(valueData[i].parsedJson.data.amount_in).add(new BN(valueData[i].parsedJson.data.fee_amount))
+            ? new BN(valueData[i].parsedBcs.data.amount_in)
+            : new BN(valueData[i].parsedBcs.data.amount_in).add(new BN(valueData[i].parsedBcs.data.fee_amount))
         if (amount.lt(tempMaxAmount)) {
           tempIndex = i
           tempMaxAmount = amount
@@ -754,26 +764,26 @@ export class RouterModule implements IModule {
     const targetSqrtPrice = []
     if (params[tempIndex].stepNums > 1) {
       targetSqrtPrice.push(
-        valueData[tempIndex].parsedJson.data.target_sqrt_price_ab,
-        valueData[tempIndex].parsedJson.data.target_sqrt_price_cd
+        valueData[tempIndex].parsedBcs.data.target_sqrt_price_ab,
+        valueData[tempIndex].parsedBcs.data.target_sqrt_price_cd
       )
       currentSqrtPrice.push(
-        valueData[tempIndex].parsedJson.data.current_sqrt_price_ab,
-        valueData[tempIndex].parsedJson.data.current_sqrt_price_cd
+        valueData[tempIndex].parsedBcs.data.current_sqrt_price_ab,
+        valueData[tempIndex].parsedBcs.data.current_sqrt_price_cd
       )
     } else {
-      targetSqrtPrice.push(valueData[tempIndex].parsedJson.data.after_sqrt_price)
-      currentSqrtPrice.push(valueData[tempIndex].parsedJson.current_sqrt_price)
+      targetSqrtPrice.push(valueData[tempIndex].parsedBcs.data.after_sqrt_price)
+      currentSqrtPrice.push(valueData[tempIndex].parsedBcs.current_sqrt_price)
     }
 
     const result: PreSwapResult = {
       index: tempIndex,
       amountIn: params[0].byAmountIn ? params[tempIndex].amount : tempMaxAmount,
-      amountMedium: valueData[tempIndex].parsedJson.data.amount_medium,
+      amountMedium: valueData[tempIndex].parsedBcs.data.amount_medium,
       amountOut: params[0].byAmountIn ? tempMaxAmount : params[tempIndex].amount,
       targetSqrtPrice,
       currentSqrtPrice,
-      isExceed: valueData[tempIndex].parsedJson.data.is_exceed,
+      isExceed: valueData[tempIndex].parsedBcs.data.is_exceed,
       stepNum: params[tempIndex].stepNums,
     }
     return result

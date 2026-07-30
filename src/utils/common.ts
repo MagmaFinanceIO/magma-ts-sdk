@@ -1,8 +1,8 @@
 import BN from 'bn.js'
-import { fromB64, fromHEX } from '@mysten/bcs'
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import { Secp256k1Keypair } from '@mysten/sui/keypairs/secp256k1'
-import { SuiObjectResponse } from '@mysten/sui/client'
+import { SuiObjectResponse } from '@mysten/sui/jsonRpc'
+import { fromBase64, fromHex } from '@mysten/sui/utils'
 import { ClmmPositionStatus, Pool, Position, PositionReward, Rewarder } from '../types'
 import { MathUtil } from '../math'
 import { NFT } from '../types/sui'
@@ -76,7 +76,7 @@ export function secretKeyToEd25519Keypair(secretKey: string | Uint8Array, ecode:
     return Ed25519Keypair.fromSecretKey(new Uint8Array(key))
   }
 
-  const hexKey = ecode === 'hex' ? fromHEX(secretKey) : fromB64(secretKey)
+  const hexKey = ecode === 'hex' ? fromHex(secretKey) : fromBase64(secretKey)
   return Ed25519Keypair.fromSecretKey(hexKey)
 }
 
@@ -91,7 +91,7 @@ export function secretKeyToSecp256k1Keypair(secretKey: string | Uint8Array, ecod
     const key = Buffer.from(secretKey)
     return Secp256k1Keypair.fromSecretKey(new Uint8Array(key))
   }
-  const hexKey = ecode === 'hex' ? fromHEX(secretKey) : fromB64(secretKey)
+  const hexKey = ecode === 'hex' ? fromHex(secretKey) : fromBase64(secretKey)
   return Secp256k1Keypair.fromSecretKey(hexKey)
 }
 
@@ -113,6 +113,29 @@ function buildPoolName(coin_type_a: string, coin_type_b: string, tick_spacing: s
  * @param {SuiObjectResponse} objects - The SuiObjectResponse containing information about the pool.
  * @returns {Pool} - The built Pool object.
  */
+function unwrapMoveValue(value: any): any {
+  return value && typeof value === 'object' && 'fields' in value ? value.fields : value
+}
+
+function getMoveIdValue(value: any): string {
+  const unwrapped = unwrapMoveValue(value)
+  if (typeof unwrapped === 'string') return unwrapped
+  const id = unwrapMoveValue(unwrapped?.id ?? unwrapped)
+  if (typeof id === 'string') return id
+  return id?.id ?? ''
+}
+
+function getMoveTypeName(value: any): string {
+  const unwrapped = unwrapMoveValue(value)
+  const name = typeof unwrapped === 'string' ? unwrapped : unwrapped?.name ?? ''
+  return name.includes('::') && !name.startsWith('0x') ? `0x${name}` : name
+}
+
+function getMoveBits(value: any): string | number | bigint {
+  const unwrapped = unwrapMoveValue(value)
+  return unwrapped && typeof unwrapped === 'object' && 'bits' in unwrapped ? unwrapped.bits : unwrapped
+}
+
 export function buildPool(objects: SuiObjectResponse): Pool {
   const type = getMoveObjectType(objects) as string
   const formatType = extractStructTagFromType(type)
@@ -121,19 +144,26 @@ export function buildPool(objects: SuiObjectResponse): Pool {
     throw new ClmmpoolsError(`Pool id ${getObjectId(objects)} not exists.`, PoolErrorCode.InvalidPoolObject)
   }
 
+  const rewardManager = unwrapMoveValue(fields.rewarder_manager)
   const rewarders: Rewarder[] = []
-  fields.rewarder_manager.fields.rewarders.forEach((item: any) => {
-    const { emissions_per_second } = item.fields
+  ;(rewardManager?.rewarders ?? []).forEach((rawItem: any) => {
+    const item = unwrapMoveValue(rawItem)
+    const { emissions_per_second } = item
     const emissionSeconds = MathUtil.fromX64(new BN(emissions_per_second))
     const emissionsEveryDay = Math.floor(emissionSeconds.toNumber() * 60 * 60 * 24)
 
     rewarders.push({
       emissions_per_second,
-      coinAddress: extractStructTagFromType(item.fields.reward_coin.fields.name).source_address,
-      growth_global: item.fields.growth_global,
+      coinAddress: extractStructTagFromType(getMoveTypeName(item.reward_coin)).source_address,
+      growth_global: item.growth_global,
       emissionsEveryDay,
     })
   })
+
+  const positionManager = unwrapMoveValue(fields.position_manager)
+  const positions = unwrapMoveValue(positionManager.positions)
+  const tickManager = unwrapMoveValue(fields.tick_manager)
+  const ticks = unwrapMoveValue(tickManager.ticks)
 
   const pool: Pool = {
     poolAddress: getObjectId(objects),
@@ -143,7 +173,7 @@ export function buildPool(objects: SuiObjectResponse): Pool {
     coinAmountA: fields.coin_a,
     coinAmountB: fields.coin_b,
     current_sqrt_price: fields.current_sqrt_price,
-    current_tick_index: asIntN(BigInt(fields.current_tick_index.fields.bits)),
+    current_tick_index: asIntN(BigInt(getMoveBits(fields.current_tick_index))),
     fee_growth_global_a: fields.fee_growth_global_a,
     fee_growth_global_b: fields.fee_growth_global_b,
     fee_protocol_coin_a: fields.fee_protocol_coin_a,
@@ -152,13 +182,13 @@ export function buildPool(objects: SuiObjectResponse): Pool {
     is_pause: fields.is_pause,
     liquidity: fields.liquidity,
     position_manager: {
-      positions_handle: fields.position_manager.fields.positions.fields.id.id,
-      size: fields.position_manager.fields.positions.fields.size,
+      positions_handle: getMoveIdValue(positions.id),
+      size: positions.size,
     },
     rewarder_infos: rewarders,
-    rewarder_last_updated_time: fields.rewarder_manager.fields.last_updated_time,
+    rewarder_last_updated_time: rewardManager.last_updated_time,
     tickSpacing: fields.tick_spacing,
-    ticks_handle: fields.tick_manager.fields.ticks.fields.id.id,
+    ticks_handle: getMoveIdValue(ticks.id),
     uri: fields.url,
     index: Number(fields.index),
     name: '',
@@ -173,7 +203,7 @@ export function buildPool(objects: SuiObjectResponse): Pool {
  * @returns {NFT} - The built NFT object.
  */
 export function buildNFT(objects: any): NFT {
-  const fields = getObjectDisplay(objects).data
+  const fields = getObjectDisplay(objects).data as Record<string, string> | null
   const nft: NFT = {
     creator: '',
     description: '',
@@ -243,7 +273,7 @@ export function buildPosition(object: SuiObjectResponse): Position {
     }
 
     if ('nft' in fields) {
-      fields = fields.nft.fields
+      fields = unwrapMoveValue(fields.nft)
       nft.description = fields.description as string
       nft.name = fields.name
       nft.link = fields.url
@@ -253,14 +283,14 @@ export function buildPosition(object: SuiObjectResponse): Position {
 
     position = {
       ...nft,
-      pos_object_id: fields.id.id,
+      pos_object_id: getMoveIdValue(fields.id),
       owner: ownerWarp.AddressOwner,
       type,
       liquidity: fields.liquidity,
-      coin_type_a: fields.coin_type_a.fields.name,
-      coin_type_b: fields.coin_type_b.fields.name,
-      tick_lower_index: asIntN(BigInt(fields.tick_lower_index.fields.bits)),
-      tick_upper_index: asIntN(BigInt(fields.tick_upper_index.fields.bits)),
+      coin_type_a: getMoveTypeName(fields.coin_type_a),
+      coin_type_b: getMoveTypeName(fields.coin_type_b),
+      tick_lower_index: asIntN(BigInt(getMoveBits(fields.tick_lower_index))),
+      tick_upper_index: asIntN(BigInt(getMoveBits(fields.tick_upper_index))),
       index: fields.index,
       pool: fields.pool,
       reward_amount_owed_0: '0',
@@ -274,7 +304,7 @@ export function buildPosition(object: SuiObjectResponse): Position {
       fee_growth_inside_b: '0',
       fee_owed_b: '0',
       position_status: ClmmPositionStatus.Exists,
-      name:fields.name
+      name: fields.name,
     }
   }
 

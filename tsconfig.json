@@ -91,7 +91,7 @@
     "skipLibCheck": true /* Skip type checking all .d.ts files. */,
     "module": "ESNext",
     "target": "es2020",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     // "resolveJsonModule": true,
     "noEmit": false,
     "types": ["node", "jest"],

@@ -1,4 +1,4 @@
-import { SuiMoveObject, SuiTransactionBlockResponse } from '@mysten/sui/client'
+import { SuiMoveObject, SuiTransactionBlockResponse } from '@mysten/sui/jsonRpc'
 import { CoinAsset, FaucetCoin } from '../types'
 import { extractStructTagFromType, normalizeCoinType } from '../utils/contracts'
 import { SuiAddressType } from '../types/sui'

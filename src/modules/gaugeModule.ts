@@ -15,6 +15,30 @@ import { IModule } from '../interfaces/IModule'
 import { MagmaClmmSDK } from '../sdk'
 import { asIntN, extractStructTagFromType, getObjectType } from '../utils'
 
+function simulationEventsByName(simulateRes: any, eventName: string): any[] {
+  return (
+    simulateRes.events?.filter((item: any) => {
+      return extractStructTagFromType(item.type).name === eventName
+    }) ?? []
+  )
+}
+
+function requireSimulationEvents(simulateRes: any, eventName: string, context: string): any[] {
+  const events = simulationEventsByName(simulateRes, eventName)
+  if (events.length === 0) {
+    throw new Error(`${context} simulation did not emit ${eventName}`)
+  }
+  return events
+}
+
+function requireSimulationEventByShape(simulateRes: any, context: string, predicate: (item: any) => boolean): any[] {
+  const events = simulateRes.events?.filter(predicate) ?? []
+  if (events.length === 0) {
+    throw new Error(`${context} simulation did not emit the expected event`)
+  }
+  return events
+}
+
 export class GaugeModule implements IModule {
   protected _sdk: MagmaClmmSDK
 
@@ -146,10 +170,11 @@ export class GaugeModule implements IModule {
     }
 
     const res: any[] = []
-
-    simulateRes.events?.forEach((item: any) => {
-      res.push(item.parsedJson)
-    })
+    requireSimulationEventByShape(simulateRes, 'user_staked_position_infos', (item: any) => Array.isArray(item.parsedBcs?.infos)).forEach(
+      (item: any) => {
+        res.push(item.parsedBcs)
+      }
+    )
 
     return res
   }
@@ -178,9 +203,18 @@ export class GaugeModule implements IModule {
     }
 
     const poolGauger = new Map<string, string>()
-    simulateRes.events?.forEach((item: any) => {
-      const { gauges } = item.parsedJson
-      item.parsedJson.pools.map((pool: string, index: string) => {
+    requireSimulationEventByShape(
+      simulateRes,
+      'getPoolGaguers',
+      (item: any) =>
+        Array.isArray(item.parsedBcs?.pools) &&
+        Array.isArray(item.parsedBcs?.gauges) &&
+        item.parsedBcs.pools.length === item.parsedBcs.gauges.length &&
+        item.parsedBcs.pools.every((pool: unknown) => typeof pool === 'string') &&
+        item.parsedBcs.gauges.every((gauge: unknown) => typeof gauge === 'string')
+    ).forEach((item: any) => {
+      const { gauges } = item.parsedBcs
+      item.parsedBcs.pools.forEach((pool: string, index: number) => {
         poolGauger.set(pool, gauges[index])
       })
     })
@@ -237,12 +271,20 @@ export class GaugeModule implements IModule {
       total_supply: 0,
       total_locked: 0,
     }
-    simulateRes.events?.forEach((item: any) => {
+    requireSimulationEventByShape(
+      simulateRes,
+      'getEmissions',
+      (item: any) =>
+        item.parsedBcs?.emission != null &&
+        item.parsedBcs?.rebase != null &&
+        item.parsedBcs?.total_supply != null &&
+        item.parsedBcs?.total_locked != null
+    ).forEach((item: any) => {
       res = {
-        emission: item.parsedJson.emission,
-        rebase: item.parsedJson.rebase,
-        total_supply: item.parsedJson.total_supply,
-        total_locked: item.parsedJson.total_locked,
+        emission: item.parsedBcs.emission,
+        rebase: item.parsedBcs.rebase,
+        total_supply: item.parsedBcs.total_supply,
+        total_locked: item.parsedBcs.total_locked,
       }
     })
 
@@ -283,6 +325,10 @@ export class GaugeModule implements IModule {
   }
 
   async getEpochRewardByPool(pool: string, incentive_tokens: string[]): Promise<Map<string, string>> {
+    if (incentive_tokens.length === 0) {
+      return new Map<string, string>()
+    }
+
     const tx = new Transaction()
     const { integrate, simulationAccount } = this.sdk.sdkOptions
     const { magma_token, voter_id } = getPackagerConfigs(this.sdk.sdkOptions.ve33)
@@ -313,10 +359,8 @@ export class GaugeModule implements IModule {
 
     const res = new Map<string, string>()
 
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventPoolIncentivesAmount`) {
-        res.set(item.parsedJson.token, item.parsedJson.amount)
-      }
+    requireSimulationEvents(simulateRes, 'EventPoolIncentivesAmount', 'getEpochRewardByPool').forEach((item: any) => {
+      res.set(item.parsedBcs.token, item.parsedBcs.amount)
     })
 
     return res

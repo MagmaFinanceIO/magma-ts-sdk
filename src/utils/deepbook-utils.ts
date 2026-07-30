@@ -42,7 +42,7 @@ export class DeepbookUtils {
       tx.transferObjects([cap], tx.pure.address(senderAddress))
     }
 
-    return [cap, tx]
+    return [cap, tx] as const
   }
 
   static deleteAccountCap(accountCap: string, sdkOptions: SdkOptions, tx: Transaction): Transaction {
@@ -116,7 +116,6 @@ export class DeepbookUtils {
     } catch (error) {
       console.log('getPoolImmutables', error)
     }
-
     // console.log('allPools', allPools)
     return allPools
   }
@@ -142,16 +141,20 @@ export class DeepbookUtils {
       sender: simulationAccount.address,
     })
 
+    if (simulateRes.error != null) {
+      throw new Error(`get pool asks simulation failed: ${simulateRes.error.code}, ${simulateRes.error.message}`)
+    }
+
     const valueData: any = simulateRes.events?.filter((item: any) => {
       return extractStructTagFromType(item.type).name === `BookStatus`
     })
     if (valueData.length === 0) {
-      return asks
+      throw new Error('get pool asks simulation did not emit BookStatus')
     }
 
-    for (let i = 0; i < valueData[0].parsedJson.depths.length; i++) {
-      const price = valueData[0].parsedJson.price[i]
-      const depth = valueData[0].parsedJson.depths[i]
+    for (let i = 0; i < valueData[0].parsedBcs.depths.length; i++) {
+      const price = valueData[0].parsedBcs.price[i]
+      const depth = valueData[0].parsedBcs.depths[i]
       const ask: Order = {
         price: parseInt(price, 10),
         quantity: parseInt(depth, 10),
@@ -183,16 +186,20 @@ export class DeepbookUtils {
       sender: simulationAccount.address,
     })
 
+    if (simulateRes.error != null) {
+      throw new Error(`get pool bids simulation failed: ${simulateRes.error.code}, ${simulateRes.error.message}`)
+    }
+
     const valueData: any = simulateRes.events?.filter((item: any) => {
       return extractStructTagFromType(item.type).name === `BookStatus`
     })
     if (valueData.length === 0) {
-      return bids
+      throw new Error('get pool bids simulation did not emit BookStatus')
     }
 
-    for (let i = 0; i < valueData[0].parsedJson.depths.length; i++) {
-      const price = valueData[0].parsedJson.price[i]
-      const depth = valueData[0].parsedJson.depths[i]
+    for (let i = 0; i < valueData[0].parsedBcs.depths.length; i++) {
+      const price = valueData[0].parsedBcs.price[i]
+      const depth = valueData[0].parsedBcs.depths[i]
       const bid: Order = {
         price: parseInt(price, 10),
         quantity: parseInt(depth, 10),
@@ -328,13 +335,17 @@ export class DeepbookUtils {
       sender: simulationAccount.address,
     })
 
+    if (simulateRes.error != null) {
+      throw new Error(`deepbook swap simulation failed: ${simulateRes.error.code}, ${simulateRes.error.message}`)
+    }
+
     const valueData: any = simulateRes.events?.filter((item: any) => {
       return extractStructTagFromType(item.type).name === `DeepbookSwapEvent`
     })
     if (valueData.length === 0) {
-      return null
+      throw new Error('deepbook swap simulation did not emit DeepbookSwapEvent')
     }
-    const params: any = valueData[0].parsedJson
+    const params: any = valueData[0].parsedBcs
     return {
       poolAddress: params.pool,
       estimatedAmountIn: params.amount_in,
