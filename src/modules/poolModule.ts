@@ -73,6 +73,17 @@ function requireSimulationEvents(simulateRes: any, eventName: string, context: s
   return events
 }
 
+function assertCreatePoolCoinTypeSequence(params: Pick<CreatePoolParams, 'coinTypeA' | 'coinTypeB'>): void {
+  const coinTypeA = normalizeSuiAddress(params.coinTypeA)
+  const coinTypeB = normalizeSuiAddress(params.coinTypeB)
+  if (coinTypeA === coinTypeB || isSortedSymbols(coinTypeA, coinTypeB)) {
+    throw new ClmmpoolsError('coinTypeA and coinTypeB must use the canonical CLMM order', PoolErrorCode.InvalidCoinTypeSequence, {
+      coinTypeA: params.coinTypeA,
+      coinTypeB: params.coinTypeB,
+    })
+  }
+}
+
 /**
  * Helper class to help interact with clmm pools with a pool router interface.
  */
@@ -377,11 +388,7 @@ export class PoolModule implements IModule {
    */
   async creatPoolsTransactionPayload(paramss: CreatePoolParams[]): Promise<Transaction> {
     for (const params of paramss) {
-      if (isSortedSymbols(normalizeSuiAddress(params.coinTypeA), normalizeSuiAddress(params.coinTypeB))) {
-        const swpaCoinTypeB = params.coinTypeB
-        params.coinTypeB = params.coinTypeA
-        params.coinTypeA = swpaCoinTypeB
-      }
+      assertCreatePoolCoinTypeSequence(params)
     }
     const payload = await this.creatPool(paramss)
     return payload
@@ -394,15 +401,7 @@ export class PoolModule implements IModule {
    * @returns {Promise<Transaction>}
    */
   async creatPoolTransactionPayload(params: CreatePoolAddLiquidityParams): Promise<Transaction> {
-    if (isSortedSymbols(normalizeSuiAddress(params.coinTypeA), normalizeSuiAddress(params.coinTypeB))) {
-      const swpaCoinTypeB = params.coinTypeB
-      params.coinTypeB = params.coinTypeA
-      params.coinTypeA = swpaCoinTypeB
-
-      const metadataB = params.metadata_b
-      params.metadata_b = params.metadata_a
-      params.metadata_a = metadataB
-    }
+    assertCreatePoolCoinTypeSequence(params)
     return await this.createPoolAndAddLiquidity(params)
   }
 
@@ -412,14 +411,7 @@ export class PoolModule implements IModule {
    * @returns {Promise<Transaction>}
    */
   async createPoolTransactionPayload(params: CreatePoolAddLiquidityParams): Promise<Transaction> {
-    if (isSortedSymbols(normalizeSuiAddress(params.coinTypeA), normalizeSuiAddress(params.coinTypeB))) {
-      const swpaCoinTypeB = params.coinTypeB
-      params.coinTypeB = params.coinTypeA
-      params.coinTypeA = swpaCoinTypeB
-      const metadataB = params.metadata_b
-      params.metadata_b = params.metadata_a
-      params.metadata_a = metadataB
-    }
+    assertCreatePoolCoinTypeSequence(params)
     return await this.createPoolAndAddLiquidity(params)
   }
 

@@ -54,7 +54,7 @@ function unresolvedObjectId(data: any, argument: any): string | undefined {
 }
 
 describe('magma-ts-sdk CLMM v2 transaction compatibility', () => {
-  test('keeps metadata paired with sorted coin types in create_pool_v2', async () => {
+  test('keeps metadata paired with canonical coin types in create_pool_v2', async () => {
     const sdk = buildSdk()
     const metadataByCoin = new Map([
       [COIN_A, METADATA_A],
@@ -68,11 +68,11 @@ describe('magma-ts-sdk CLMM v2 transaction compatibility', () => {
       fix_amount_a: true,
       amount_a: '0',
       amount_b: '0',
-      coinTypeA: COIN_A,
-      coinTypeB: COIN_B,
+      coinTypeA: COIN_B,
+      coinTypeB: COIN_A,
       slippage: 0,
-      metadata_a: METADATA_A,
-      metadata_b: METADATA_B,
+      metadata_a: METADATA_B,
+      metadata_b: METADATA_A,
       tick_lower: -1,
       tick_upper: 1,
     })

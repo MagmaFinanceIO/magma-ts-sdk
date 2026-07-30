@@ -7,7 +7,7 @@
   "module": "dist/index.mjs",
   "scripts": {
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "test:sui-v2": "npm test -- --runInBand tests/rpc_adapter.test.ts tests/sui_v2_grpc.test.ts tests/parser_compatibility.test.ts tests/move_bcs_decoder.test.ts tests/devinspect_consumer_failures.test.ts tests/devinspect_event_contracts.test.ts tests/config_defaults.test.ts tests/test_signing_credentials.test.ts tests/ts_sdk_pool_v2.test.ts tests/add_liquidity_sui_gas_regression.test.ts",
+    "test:sui-v2": "npm test -- --runInBand tests/rpc_adapter.test.ts tests/sui_v2_grpc.test.ts tests/parser_compatibility.test.ts tests/move_bcs_decoder.test.ts tests/devinspect_consumer_failures.test.ts tests/devinspect_event_contracts.test.ts tests/config_defaults.test.ts tests/test_signing_credentials.test.ts tests/ts_sdk_pool_v2.test.ts tests/add_liquidity_sui_gas_regression.test.ts tests/create_pool_coin_order.test.ts",
     "test:sui-v2:live": "RUN_LIVE_SUI_TESTS=1 npm test -- --runInBand tests/sui_v2_live_position.test.ts",
     "test:typecheck": "tsc -p tsconfig.tests.json",
     "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
