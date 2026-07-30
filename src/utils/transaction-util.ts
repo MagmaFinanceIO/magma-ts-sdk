@@ -293,11 +293,11 @@ export class TransactionUtil {
           false,
           true
         )
-        params = TransactionUtil.fixAddLiquidityFixTokenParams(params, gasEstimateArg.slippage, gasEstimateArg.curSqrtPrice)
-
-        tx = TransactionUtil.buildAddLiquidityFixTokenArgs(newTx, sdk, allCoins, params, primaryCoinAInputs, primaryCoinBInputs)
-        return tx
       }
+      params = TransactionUtil.fixAddLiquidityFixTokenParams(params, gasEstimateArg.slippage, gasEstimateArg.curSqrtPrice)
+
+      tx = TransactionUtil.buildAddLiquidityFixTokenArgs(newTx, sdk, allCoins, params, primaryCoinAInputs, primaryCoinBInputs)
+      return tx
     }
     return tx
   }
@@ -447,18 +447,11 @@ export class TransactionUtil {
           false,
           true
         )
-        params = TransactionUtil.fixAddLiquidityFixTokenParams(params, gasEstimateArg.slippage, gasEstimateArg.curSqrtPrice)
-
-        tx = TransactionUtil.buildAddLiquidityWithProtectionFixTokenArgs(
-          newTx,
-          sdk,
-          allCoins,
-          params,
-          primaryCoinAInputs,
-          primaryCoinBInputs
-        )
-        return tx
       }
+      params = TransactionUtil.fixAddLiquidityFixTokenParams(params, gasEstimateArg.slippage, gasEstimateArg.curSqrtPrice)
+
+      tx = TransactionUtil.buildAddLiquidityWithProtectionFixTokenArgs(newTx, sdk, allCoins, params, primaryCoinAInputs, primaryCoinBInputs)
+      return tx
     }
     return tx
   }
