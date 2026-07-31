@@ -9,6 +9,7 @@
 - `sendTransaction` now throws `MagmaRpcError` on signing or execution failure instead of logging and returning `undefined`.
 - APIs using `paginationArgs: 'all'` are bounded by default and can report `truncated: true` when a safety limit is reached.
 - Default mainnet and testnet configurations no longer enable a JSON-RPC event fallback implicitly.
+- Decimal amount conversion helpers now return strings so integer values cannot lose precision through JavaScript `number`.
 
 ### Added
 
@@ -18,6 +19,7 @@
 - Configurable endpoint and pagination safety policies, cancellation support, typed RPC errors, and runtime validation for addresses, object IDs, coin types, transaction digests, limits, and dynamic-field values.
 - On-chain MovePackageService descriptor-based BCS decoding for CLMM and Magma extension simulation events, including nested generic Move datatypes.
 - Compatibility tests for Sui v2 flat Move JSON and legacy nested Move JSON, plus opt-in live position/BCS simulation tests.
+- ALMM strategy mint/add-liquidity, reward-aware burn/shrink, multi-coin inputs, Zap option types, and structured utility errors from the May 2026 CLMM SDK release.
 
 ### Fixed
 
@@ -26,6 +28,8 @@
 - Implement `getAllCoins` using `listBalances` and `listCoins` rather than scanning every owned object.
 - Avoid mutating caller-provided SDK options or injected client internals during object ID normalization.
 - Remove repository-embedded integration-test mnemonics and require explicit environment-variable injection for signing tests.
+- Use the final May 2026 Magma CLMM and integration deployments, `pool_creator_v3`, and the `script_helpers` transfer ABI.
+- Route protected SUI gas-adjusted liquidity transactions through the protection-aware builder.
 
 ### Known limitations
 

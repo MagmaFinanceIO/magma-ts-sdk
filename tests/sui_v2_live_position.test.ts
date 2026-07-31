@@ -50,6 +50,29 @@ function buildLiveSdk(positionTypePackage = clmmMainnet.clmm_pool.package_id) {
 describeLive('Sui v2 live position and BCS simulation', () => {
   jest.setTimeout(120_000)
 
+  test('resolves the built-in May 2026 CLMM and integration package IDs over gRPC', async () => {
+    const sdk = new MagmaClmmSDK({
+      ...clmmMainnet,
+      jsonRpcUrl: undefined,
+      simulationAccount: { address: POSITION_OWNER },
+    })
+    const packageIds = [
+      clmmMainnet.clmm_pool.package_id,
+      clmmMainnet.clmm_pool.published_at,
+      clmmMainnet.integrate.package_id,
+      clmmMainnet.integrate.published_at,
+    ]
+    const responses = await Promise.all(
+      [...new Set(packageIds)].map((id) => sdk.fullClient.getObject({ id, options: { showType: true } }))
+    )
+
+    expect(responses).toHaveLength(3)
+    responses.forEach((response) => {
+      expect(response.error).toBeUndefined()
+      expect(response.data?.type).toBe('package')
+    })
+  })
+
   test('reads an existing position and finds it by owner using only gRPC', async () => {
     const sdk = buildLiveSdk(POSITION_TYPE_PACKAGE)
     const position = await sdk.Position.getPositionById(POSITION_ID, false)

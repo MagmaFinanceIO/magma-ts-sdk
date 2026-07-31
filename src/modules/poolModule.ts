@@ -576,13 +576,11 @@ export class PoolModule implements IModule {
       tx.pure.u32(Number(asUintN(BigInt(params.tick_upper)).toString())),
       primaryCoinAInputsR.targetCoin,
       primaryCoinBInputsR.targetCoin,
-      tx.object(params.metadata_a),
-      tx.object(params.metadata_b),
       tx.pure.bool(params.fix_amount_a),
       tx.object(CLOCK_ADDRESS),
     ]
     tx.moveCall({
-      target: `${integrate.published_at}::pool_creator_v2::create_pool_v2`,
+      target: `${integrate.published_at}::pool_creator_v3::create_pool_v3`,
       typeArguments: [params.coinTypeA, params.coinTypeB],
       arguments: args,
     })

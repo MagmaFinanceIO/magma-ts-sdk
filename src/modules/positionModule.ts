@@ -416,7 +416,7 @@ export class PositionModule implements IModule {
       const { isAdjustCoinA, isAdjustCoinB } = findAdjustCoin(params)
       params = params as AddLiquidityWithProtectionParams
       if ((params.fix_amount_a && isAdjustCoinA) || (!params.fix_amount_a && isAdjustCoinB)) {
-        tx = await TransactionUtil.buildAddLiquidityFixTokenForGas(
+        tx = await TransactionUtil.buildAddLiquidityWithProtectionFixTokenForGas(
           this._sdk,
           allCoinAsset,
           params,

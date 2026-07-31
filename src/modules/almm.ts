@@ -1,6 +1,12 @@
-import { Transaction } from '@mysten/sui/transactions'
+import { Transaction, TransactionObjectArgument } from '@mysten/sui/transactions'
 import { SuiObjectResponse } from '@mysten/sui/jsonRpc'
-import { get_real_id, get_storage_id_from_real_id } from '@magmaprotocol/calc_almm'
+import {
+  get_price_x128_from_real_id,
+  get_real_id,
+  get_real_id_from_price_x128,
+  get_storage_id_from_real_id,
+} from '@magmaprotocol/calc_almm'
+import Decimal from 'decimal.js'
 import BN from 'bn.js'
 import { BinMath, MathUtil } from '../math'
 import {
@@ -15,6 +21,8 @@ import {
   FetchPairParams,
   EventPairParams,
   AlmmPoolInfo,
+  AlmmBurnPositionParams,
+  AlmmShrinkPosition,
   AlmmCollectRewardParams,
   AlmmCollectFeeParams,
   AlmmEventEarnedFees,
@@ -25,7 +33,10 @@ import {
   AlmmCreatePairAddLiquidityParams,
   AlmmPosition,
   AlmmPositionInfo,
+  MintByStrategyParams,
+  RaiseByStrategyParams,
   EventCreatePair,
+  U64Amount,
 } from '../types/almm'
 import { DataPage, PaginationArgs } from '../types/sui'
 import {
@@ -42,7 +53,43 @@ import {
 import { CLOCK_ADDRESS, AlmmScript, getPackagerConfigs, SuiResource, Rewarder } from '../types'
 import { MagmaClmmSDK } from '../sdk'
 import { IModule } from '../interfaces/IModule'
-import { ClmmpoolsError, PositionErrorCode, TypesErrorCode } from '../errors/errors'
+import { ClmmpoolsError, MathErrorCode, PositionErrorCode, TypesErrorCode } from '../errors/errors'
+
+const U64_MAX_VALUE = BigInt('18446744073709551615')
+
+function normalizeU64Amount(value: U64Amount, fieldName: string): string {
+  if (typeof value !== 'number' && typeof value !== 'string' && typeof value !== 'bigint') {
+    throw new ClmmpoolsError(`${fieldName} must be a number, string, or bigint`, MathErrorCode.InvalidCoinAmount)
+  }
+
+  if (typeof value === 'number' && (!Number.isSafeInteger(value) || value < 0)) {
+    throw new ClmmpoolsError(`${fieldName} must be a non-negative safe integer when provided as a number`, MathErrorCode.InvalidCoinAmount)
+  }
+
+  if (typeof value === 'string' && !/^\d+$/.test(value)) {
+    throw new ClmmpoolsError(`${fieldName} must be an unsigned integer`, MathErrorCode.InvalidCoinAmount)
+  }
+
+  let amount: bigint
+  try {
+    amount = BigInt(value)
+  } catch {
+    throw new ClmmpoolsError(`${fieldName} must be an unsigned integer`, MathErrorCode.InvalidCoinAmount)
+  }
+
+  if (amount < BigInt(0) || amount > U64_MAX_VALUE) {
+    throw new ClmmpoolsError(`${fieldName} is outside the u64 range`, MathErrorCode.InvalidCoinAmount)
+  }
+  return amount.toString()
+}
+
+function normalizeU64Amounts(values: U64Amount[], fieldName: string): string[] {
+  return values.map((value, index) => normalizeU64Amount(value, `${fieldName}[${index}]`))
+}
+
+function applyU64Slippage(amount: string, slippage: Decimal, fieldName: string): string {
+  return normalizeU64Amount(new Decimal(amount).mul(slippage).toDecimalPlaces(0).toFixed(0), fieldName)
+}
 
 function simulationEventsByName(simulateRes: any, eventName: string): any[] {
   return (
@@ -111,10 +158,10 @@ export class AlmmModule implements IModule {
     return allPools
   }
 
-  async getPoolInfo(pools: string[]): Promise<AlmmPoolInfo[]> {
+  async getPoolInfo(pools: string[], forceRefresh = true): Promise<AlmmPoolInfo[]> {
     const cachePoolList: AlmmPoolInfo[] = []
     pools = pools.filter((poolID) => {
-      const cacheData = this.getCache<AlmmPoolInfo>(`${poolID}_getPoolObject`, false)
+      const cacheData = this.getCache<AlmmPoolInfo>(`${poolID}_getPoolObject`, forceRefresh)
       if (cacheData !== undefined) {
         cachePoolList.push(cacheData)
         return false
@@ -223,6 +270,237 @@ export class AlmmModule implements IModule {
       target: `${integrate.published_at}::${AlmmScript}::create_pair`,
       typeArguments,
       arguments: args,
+    })
+    return tx
+  }
+
+  async mintByStrategy(params: MintByStrategyParams, tx = new Transaction()): Promise<Transaction> {
+    const amountATotal = normalizeU64Amount(params.amountATotal, 'amountATotal')
+    const amountBTotal = normalizeU64Amount(params.amountBTotal, 'amountBTotal')
+    if (
+      params.fixCoinA &&
+      params.fixCoinB &&
+      (amountATotal === '0' || amountBTotal === '0') &&
+      params.active_bin < params.max_bin &&
+      params.active_bin > params.min_bin
+    ) {
+      if (BigInt(amountATotal) > BigInt(0)) {
+        params.min_bin = params.active_bin
+      } else if (BigInt(amountBTotal) > BigInt(0)) {
+        params.max_bin = params.active_bin
+      }
+    }
+
+    const slippage = new Decimal(params.slippage)
+    const lowerSlippage = new Decimal(1).sub(slippage.div(10000))
+    const upperSlippage = new Decimal(1).plus(slippage.div(10000))
+    tx.setSender(this.sdk.senderAddress)
+
+    const { almm_pool, integrate } = this.sdk.sdkOptions
+    const almmConfig = getPackagerConfigs(almm_pool)
+    const price = get_price_x128_from_real_id(params.active_bin, params.bin_step)
+    const activeMin = get_storage_id_from_real_id(
+      get_real_id_from_price_x128(new Decimal(price).mul(lowerSlippage).toDecimalPlaces(0).toString(), params.bin_step)
+    )
+    const activeMax = get_storage_id_from_real_id(
+      get_real_id_from_price_x128(new Decimal(price).mul(upperSlippage).toDecimalPlaces(0).toString(), params.bin_step)
+    )
+    const allCoins = await this._sdk.getOwnerCoinAssets(this._sdk.senderAddress)
+
+    let fixedAmountA = amountATotal
+    let fixedAmountB = amountBTotal
+    let amountMin = '0'
+    let amountMax = '0'
+    let coinA: TransactionObjectArgument
+    let coinB: TransactionObjectArgument
+    if (params.fixCoinA && params.fixCoinB) {
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountATotal), params.coinTypeA, false, true).targetCoin
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountBTotal), params.coinTypeB, false, true).targetCoin
+    } else if (params.fixCoinA) {
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountATotal), params.coinTypeA, false, true).targetCoin
+      amountMin = applyU64Slippage(amountBTotal, lowerSlippage, 'amountMin')
+      amountMax = applyU64Slippage(amountBTotal, upperSlippage, 'amountMax')
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountMax), params.coinTypeB, false, true).targetCoin
+      fixedAmountB = '0'
+    } else if (params.fixCoinB) {
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountBTotal), params.coinTypeB, false, true).targetCoin
+      amountMin = applyU64Slippage(amountATotal, lowerSlippage, 'amountMin')
+      amountMax = applyU64Slippage(amountATotal, upperSlippage, 'amountMax')
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountMax), params.coinTypeA, false, true).targetCoin
+      fixedAmountA = '0'
+    } else {
+      throw new ClmmpoolsError('Either fixCoinA or fixCoinB must be true', TypesErrorCode.InvalidType)
+    }
+
+    tx.moveCall({
+      target: `${integrate.published_at}::${AlmmScript}::mint_by_strategy`,
+      typeArguments: [params.coinTypeA, params.coinTypeB],
+      arguments: [
+        tx.object(params.pair),
+        tx.object(almmConfig.factory),
+        coinA,
+        coinB,
+        tx.pure.bool(params.fixCoinA),
+        tx.pure.u64(fixedAmountA),
+        tx.pure.bool(params.fixCoinB),
+        tx.pure.u64(fixedAmountB),
+        tx.pure.u8(params.strategy),
+        tx.pure.u32(get_storage_id_from_real_id(params.min_bin)),
+        tx.pure.u32(get_storage_id_from_real_id(params.max_bin)),
+        tx.pure.u32(activeMin),
+        tx.pure.u32(activeMax),
+        tx.pure.u64(amountMin),
+        tx.pure.u64(amountMax),
+        tx.object(CLOCK_ADDRESS),
+      ],
+    })
+    return tx
+  }
+
+  async addLiquidityByStrategy(params: RaiseByStrategyParams, tx = new Transaction()): Promise<Transaction> {
+    return this.raisePositionByStrategy(params, tx, params.rewards_token.length > 0)
+  }
+
+  private async raisePositionByStrategy(params: RaiseByStrategyParams, tx: Transaction, includeRewards: boolean): Promise<Transaction> {
+    const amountATotal = normalizeU64Amount(params.amountATotal, 'amountATotal')
+    const amountBTotal = normalizeU64Amount(params.amountBTotal, 'amountBTotal')
+    const slippage = new Decimal(params.slippage)
+    const lowerSlippage = new Decimal(1).sub(slippage.div(10000))
+    const upperSlippage = new Decimal(1).plus(slippage.div(10000))
+    tx.setSender(this.sdk.senderAddress)
+
+    const { almm_pool, integrate } = this.sdk.sdkOptions
+    const almmConfig = getPackagerConfigs(almm_pool)
+    const price = get_price_x128_from_real_id(params.active_bin, params.bin_step)
+    const activeMin = get_storage_id_from_real_id(
+      get_real_id_from_price_x128(new Decimal(price).mul(lowerSlippage).toDecimalPlaces(0).toString(), params.bin_step)
+    )
+    const activeMax = get_storage_id_from_real_id(
+      get_real_id_from_price_x128(new Decimal(price).mul(upperSlippage).toDecimalPlaces(0).toString(), params.bin_step)
+    )
+    const allCoins = await this._sdk.getOwnerCoinAssets(this._sdk.senderAddress)
+
+    let fixedAmountA = amountATotal
+    let fixedAmountB = amountBTotal
+    let amountMin = '0'
+    let amountMax = '0'
+    let coinA: TransactionObjectArgument
+    let coinB: TransactionObjectArgument
+    if (params.fixCoinA && params.fixCoinB) {
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountATotal), params.coinTypeA, false, true).targetCoin
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountBTotal), params.coinTypeB, false, true).targetCoin
+    } else if (params.fixCoinA) {
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountATotal), params.coinTypeA, false, true).targetCoin
+      amountMin = applyU64Slippage(amountBTotal, lowerSlippage, 'amountMin')
+      amountMax = applyU64Slippage(amountBTotal, upperSlippage, 'amountMax')
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountMax), params.coinTypeB, false, true).targetCoin
+      fixedAmountB = '0'
+    } else if (params.fixCoinB) {
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountBTotal), params.coinTypeB, false, true).targetCoin
+      amountMin = applyU64Slippage(amountATotal, lowerSlippage, 'amountMin')
+      amountMax = applyU64Slippage(amountATotal, upperSlippage, 'amountMax')
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountMax), params.coinTypeA, false, true).targetCoin
+      fixedAmountA = '0'
+    } else {
+      throw new ClmmpoolsError('Either fixCoinA or fixCoinB must be true', TypesErrorCode.InvalidType)
+    }
+
+    const argumentsList = [
+      tx.object(params.pair),
+      tx.object(almmConfig.factory),
+      ...(includeRewards ? [tx.object(almm_pool.config!.rewarder_global_vault)] : []),
+      tx.object(params.positionId),
+      coinA,
+      coinB,
+      tx.pure.bool(params.fixCoinA),
+      tx.pure.u64(fixedAmountA),
+      tx.pure.bool(params.fixCoinB),
+      tx.pure.u64(fixedAmountB),
+      tx.pure.u8(params.strategy),
+      tx.pure.u32(activeMin),
+      tx.pure.u32(activeMax),
+      tx.pure.u64(amountMin),
+      tx.pure.u64(amountMax),
+      tx.object(CLOCK_ADDRESS),
+    ]
+    tx.moveCall({
+      target: `${integrate.published_at}::${AlmmScript}::${
+        includeRewards ? `raise_by_strategy_${params.rewards_token.length}` : 'raise_by_strategy'
+      }`,
+      typeArguments: [params.coinTypeA, params.coinTypeB, ...(includeRewards ? params.rewards_token : [])],
+      arguments: argumentsList,
+    })
+    return tx
+  }
+
+  async burnPosition(params: AlmmBurnPositionParams, tx = new Transaction()): Promise<Transaction> {
+    tx.setSender(this.sdk.senderAddress)
+
+    const { integrate, clmm_pool, almm_pool } = this.sdk.sdkOptions
+    const clmmConfigs = getPackagerConfigs(clmm_pool)
+    const almmConfig = getPackagerConfigs(almm_pool)
+    const hasRewards = params.rewards_token.length > 0
+    tx.moveCall({
+      target: `${integrate.published_at}::${AlmmScript}::${
+        hasRewards ? `burn_position_reward${params.rewards_token.length}` : 'burn_position'
+      }`,
+      typeArguments: [params.coin_a, params.coin_b, ...params.rewards_token],
+      arguments: [
+        tx.object(almmConfig.factory),
+        tx.object(params.pool_id),
+        ...(hasRewards ? [tx.object(clmmConfigs.global_vault_id)] : []),
+        tx.object(params.position_id),
+        tx.object(CLOCK_ADDRESS),
+      ],
+    })
+    return tx
+  }
+
+  async shrinkPosition(params: AlmmShrinkPosition): Promise<Transaction> {
+    const tx = new Transaction()
+    tx.setSender(this.sdk.senderAddress)
+
+    const { integrate, clmm_pool, almm_pool } = this.sdk.sdkOptions
+    const clmmConfigs = getPackagerConfigs(clmm_pool)
+    const almmConfig = getPackagerConfigs(almm_pool)
+    const hasRewards = params.rewards_token.length > 0
+    tx.moveCall({
+      target: `${integrate.published_at}::${AlmmScript}::${
+        hasRewards ? `shrink_position_reward${params.rewards_token.length}` : 'shrink_position'
+      }`,
+      typeArguments: [params.coin_a, params.coin_b, ...params.rewards_token],
+      arguments: [
+        tx.object(almmConfig.factory),
+        tx.object(params.pool_id),
+        ...(hasRewards ? [tx.object(clmmConfigs.global_vault_id)] : []),
+        tx.object(params.position_id),
+        tx.pure.u64(params.delta_percentage),
+        tx.object(CLOCK_ADDRESS),
+      ],
     })
     return tx
   }
@@ -375,11 +653,15 @@ export class AlmmModule implements IModule {
 
     const allCoins = await this._sdk.getOwnerCoinAssets(this._sdk.senderAddress)
 
-    const amountATotal = params.amountsX.reduce((accumulator, currentValue) => accumulator + currentValue, 0)
-    const amountBTotal = params.amountsY.reduce((accumulator, currentValue) => accumulator + currentValue, 0)
+    const amountsX = normalizeU64Amounts(params.amountsX, 'amountsX')
+    const amountsY = normalizeU64Amounts(params.amountsY, 'amountsY')
+    const amountATotal = amountsX.reduce((total, amount) => total + BigInt(amount), BigInt(0))
+    const amountBTotal = amountsY.reduce((total, amount) => total + BigInt(amount), BigInt(0))
+    normalizeU64Amount(amountATotal, 'amountsX total')
+    normalizeU64Amount(amountBTotal, 'amountsY total')
 
-    const primaryCoinAInputs = TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountATotal), params.coinTypeA, false, true)
-    const primaryCoinBInputs = TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountBTotal), params.coinTypeB, false, true)
+    const primaryCoinAInputs = TransactionUtil.buildCoinForAmount(tx, allCoins, amountATotal, params.coinTypeA, false, true)
+    const primaryCoinBInputs = TransactionUtil.buildCoinForAmount(tx, allCoins, amountBTotal, params.coinTypeB, false, true)
 
     const storageIds: number[] = []
     params.realIds.forEach((i) => {
@@ -394,8 +676,8 @@ export class AlmmModule implements IModule {
       primaryCoinAInputs.targetCoin,
       primaryCoinBInputs.targetCoin,
       tx.pure.vector('u32', storageIds),
-      tx.pure.vector('u64', params.amountsX),
-      tx.pure.vector('u64', params.amountsY),
+      tx.pure.vector('u64', amountsX),
+      tx.pure.vector('u64', amountsY),
       tx.pure.address(params.to),
       tx.object(CLOCK_ADDRESS),
     ]
@@ -412,6 +694,8 @@ export class AlmmModule implements IModule {
   async swap(params: ALMMSwapParams): Promise<Transaction> {
     const tx = new Transaction()
     tx.setSender(this.sdk.senderAddress)
+    const amountIn = normalizeU64Amount(params.amountIn, 'amountIn')
+    const minAmountOut = normalizeU64Amount(params.minAmountOut, 'minAmountOut')
 
     const { clmm_pool, almm_pool, integrate } = this.sdk.sdkOptions
     const { global_config_id } = getPackagerConfigs(clmm_pool)
@@ -422,7 +706,7 @@ export class AlmmModule implements IModule {
     const primaryCoinInputA = TransactionUtil.buildCoinForAmount(
       tx,
       allCoinAsset,
-      params.swapForY ? BigInt(params.amountIn) : BigInt(0),
+      params.swapForY ? BigInt(amountIn) : BigInt(0),
       params.coinTypeA,
       false,
       true
@@ -431,7 +715,7 @@ export class AlmmModule implements IModule {
     const primaryCoinInputB = TransactionUtil.buildCoinForAmount(
       tx,
       allCoinAsset,
-      params.swapForY ? BigInt(0) : BigInt(params.amountIn),
+      params.swapForY ? BigInt(0) : BigInt(amountIn),
       params.coinTypeB,
       false,
       true
@@ -443,8 +727,8 @@ export class AlmmModule implements IModule {
       tx.object(global_config_id),
       primaryCoinInputA.targetCoin,
       primaryCoinInputB.targetCoin,
-      tx.pure.u64(params.amountIn),
-      tx.pure.u64(params.minAmountOut),
+      tx.pure.u64(amountIn),
+      tx.pure.u64(minAmountOut),
       tx.pure.bool(params.swapForY),
       tx.pure.address(params.to),
       tx.object(CLOCK_ADDRESS),
@@ -620,7 +904,7 @@ export class AlmmModule implements IModule {
     for (const item of allPosition) {
       poolMap.add(item.pool)
     }
-    const poolList = await this.getPoolInfo(Array.from(poolMap))
+    const poolList = await this.getPoolInfo(Array.from(poolMap), false)
     const _params: GetPairRewarderParams[] = []
 
     for (const pool of poolList) {

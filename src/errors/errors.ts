@@ -71,6 +71,11 @@ export enum UtilsErrorCode {
   InsufficientBalance = `InsufficientBalance`,
   InvalidTarget = `InvalidTarget`,
   InvalidTransactionBuilder = `InvalidTransactionBuilder`,
+  MultiplicationOverflow = 'MultiplicationOverflow',
+  DivisionByZero = 'DivisionByZero',
+  CoinNotFound = 'CoinNotFound',
+  InvalidTick = 'InvalidTick',
+  InvalidSenderAddress = 'InvalidSenderAddress',
 }
 
 export enum RouterErrorCode {
@@ -109,13 +114,24 @@ export class ClmmpoolsError extends Error {
 
   errorCode?: ClmmpoolsErrorCode
 
-  constructor(message: string, errorCode?: ClmmpoolsErrorCode) {
+  details?: Record<string, any>
+
+  constructor(message: string, errorCode?: ClmmpoolsErrorCode, details?: Record<string, any>) {
     super(message)
     this.message = message
     this.errorCode = errorCode
+    this.details = details
   }
 
   static isClmmpoolsErrorCode(e: any, code: ClmmpoolsErrorCode): boolean {
     return e instanceof ClmmpoolsError && e.errorCode === code
   }
+}
+
+export const handleError = (code: ClmmpoolsErrorCode, error: Error, details?: Record<string, any>) => {
+  throw new ClmmpoolsError(error.message, code, details)
+}
+
+export const handleMessageError = (code: ClmmpoolsErrorCode, message: string, details?: Record<string, any>) => {
+  throw new ClmmpoolsError(message, code, details)
 }

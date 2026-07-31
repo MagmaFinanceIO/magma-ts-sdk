@@ -21,8 +21,6 @@ function buildParams(coinTypeA = LOWER_COIN_TYPE, coinTypeB = HIGHER_COIN_TYPE):
     initialize_sqrt_price: '123456789',
     uri: '',
     amount_a: '111',
-    metadata_a: id('4'),
-    metadata_b: id('5'),
     amount_b: '222',
     fix_amount_a: true,
     tick_lower: -100,

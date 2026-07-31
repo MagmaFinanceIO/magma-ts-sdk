@@ -9,9 +9,6 @@ const id = (digit: string) => `0x${digit.repeat(64)}`
 const OWNER = id('1')
 const COIN_A = `${id('2')}::coin_a::COIN_A`
 const COIN_B = `${id('3')}::coin_b::COIN_B`
-const METADATA_A = id('4')
-const METADATA_B = id('5')
-
 function packageConfig(packageId: string) {
   return {
     package_id: packageId,
@@ -48,18 +45,9 @@ function buildSdk(): MagmaClmmSDK {
   return sdk
 }
 
-function unresolvedObjectId(data: any, argument: any): string | undefined {
-  if (argument?.$kind !== 'Input') return undefined
-  return data.inputs[argument.Input]?.UnresolvedObject?.objectId
-}
-
-describe('magma-ts-sdk CLMM v2 transaction compatibility', () => {
-  test('keeps metadata paired with canonical coin types in create_pool_v2', async () => {
+describe('magma-ts-sdk CLMM v3 transaction compatibility', () => {
+  test('uses the deployed create_pool_v3 and script_helpers ABI', async () => {
     const sdk = buildSdk()
-    const metadataByCoin = new Map([
-      [COIN_A, METADATA_A],
-      [COIN_B, METADATA_B],
-    ])
 
     const transaction = await sdk.Pool.createPoolTransactionPayload({
       tick_spacing: 2,
@@ -71,22 +59,19 @@ describe('magma-ts-sdk CLMM v2 transaction compatibility', () => {
       coinTypeA: COIN_B,
       coinTypeB: COIN_A,
       slippage: 0,
-      metadata_a: METADATA_B,
-      metadata_b: METADATA_A,
       tick_lower: -1,
       tick_upper: 1,
     })
 
     const data = transaction.getData() as any
-    const createPool = data.commands.find((command: any) => command.MoveCall?.module === 'pool_creator_v2')?.MoveCall
+    const createPool = data.commands.find((command: any) => command.MoveCall?.module === 'pool_creator_v3')?.MoveCall
 
-    expect(createPool?.function).toBe('create_pool_v2')
+    expect(createPool?.function).toBe('create_pool_v3')
     expect(createPool?.typeArguments).toHaveLength(2)
-    expect(unresolvedObjectId(data, createPool.arguments[9])).toBe(metadataByCoin.get(createPool.typeArguments[0]))
-    expect(unresolvedObjectId(data, createPool.arguments[10])).toBe(metadataByCoin.get(createPool.typeArguments[1]))
+    expect(createPool?.arguments).toHaveLength(11)
 
     const transfers = data.commands.filter(
-      (command: any) => command.MoveCall?.module === 'utils' && command.MoveCall?.function === 'transfer_coin_to_sender'
+      (command: any) => command.MoveCall?.module === 'script_helpers' && command.MoveCall?.function === 'transfer_coin_to_sender'
     )
     expect(transfers).toHaveLength(2)
   })

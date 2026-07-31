@@ -39,12 +39,12 @@ export const clmmMainnet: SdkOptions = {
   },
   clmm_pool: {
     package_id: '0x4a35d3dfef55ed3631b7158544c6322a23bc434fe4fca1234cb680ce0505f82d',
-    published_at: '0x183af2adf115f331105825ae63e1d7d3c848d67beb4d60bc36208a90a5e92f4b',
+    published_at: '0x0acd1d187950450ae3e625375f8067a7802e99a05b6e655e1fec124a0e3c891e',
     config: SDKConfig.clmmConfig,
   },
   integrate: {
-    package_id: '0xcd23d8f0a6e8b67d25499a722a4c989c6d01b97dee10f8c354bfbd42a6b3ebd9',
-    published_at: '0x4a9d6fb6f34ca8918756c2dfddf8f0a7fd5ef590bcffa6c03db24a6f10f42c5e',
+    package_id: '0x668909f9f30380dd1b63834534dc2bd19b274e6312a0dfa9be0ee5b0cef73446',
+    published_at: '0x668909f9f30380dd1b63834534dc2bd19b274e6312a0dfa9be0ee5b0cef73446',
   },
   deepbook: {
     package_id: '0x000000000000000000000000000000000000000000000000000000000000dee9',
