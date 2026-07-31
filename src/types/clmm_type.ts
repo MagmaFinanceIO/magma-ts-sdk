@@ -464,9 +464,6 @@ export type CreatePoolAddLiquidityParams = CreatePoolParams & {
    */
   tick_upper: number
 
-  metadata_a: SuiObjectIdType
-  metadata_b: SuiObjectIdType
-
   /**
    * The allowed slippage percentage for the liquidity provision.
    */

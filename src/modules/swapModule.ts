@@ -28,6 +28,19 @@ import { ClmmpoolsError, ConfigErrorCode, SwapErrorCode } from '../errors/errors
 export const AMM_SWAP_MODULE = 'amm_swap'
 export const POOL_STRUCT = 'Pool'
 
+function simulationErrorLabel(error: any): string {
+  if (error == null) {
+    return 'unknown simulation error'
+  }
+  if (typeof error === 'string') {
+    return error
+  }
+  if (error.code || error.message) {
+    return `${error.code ?? 'SIMULATION_FAILED'}: ${error.message ?? 'simulation failed'}`
+  }
+  return 'SIMULATION_FAILED: simulation failed'
+}
+
 /**
  * Helper class to help interact with clmm pool swap with a swap router interface.
  */
@@ -138,12 +151,12 @@ export class SwapModule implements IModule {
     })
     if (simulateRes.error != null) {
       throw new ClmmpoolsError(
-        `pre swap with multi pools error code: ${simulateRes.error ?? 'unknown error'}, please check config and params`,
+        `pre swap with multi pools simulation failed: ${simulationErrorLabel(simulateRes.error)}, please check config and params`,
         ConfigErrorCode.InvalidConfig
       )
     }
 
-    const valueData: any = simulateRes.events?.filter((item: any) => {
+    const valueData: any = (simulateRes.events ?? []).filter((item: any) => {
       return extractStructTagFromType(item.type).name === `CalculatedSwapResultEvent`
     })
     if (valueData.length === 0) {
@@ -157,18 +170,19 @@ export class SwapModule implements IModule {
     let tempMaxAmount = params.byAmountIn ? ZERO : U64_MAX
     let tempIndex = 0
     for (let i = 0; i < valueData.length; i += 1) {
-      if (valueData[i].parsedJson.data.is_exceed) {
+      const { data } = valueData[i].parsedBcs
+      if (data.is_exceed) {
         continue
       }
 
       if (params.byAmountIn) {
-        const amount = new BN(valueData[i].parsedJson.data.amount_out)
+        const amount = new BN(data.amount_out)
         if (amount.gt(tempMaxAmount)) {
           tempIndex = i
           tempMaxAmount = amount
         }
       } else {
-        const amount = new BN(valueData[i].parsedJson.data.amount_out)
+        const amount = new BN(data.amount_out)
         if (amount.lt(tempMaxAmount)) {
           tempIndex = i
           tempMaxAmount = amount
@@ -185,7 +199,7 @@ export class SwapModule implements IModule {
         coinTypeA: params.coinTypeA,
         coinTypeB: params.coinTypeB,
       },
-      valueData[tempIndex].parsedJson
+      valueData[tempIndex].parsedBcs
     )
   }
 
@@ -226,18 +240,18 @@ export class SwapModule implements IModule {
     })
     if (simulateRes.error != null) {
       throw new ClmmpoolsError(
-        `preswap error code: ${simulateRes.error ?? 'unknown error'}, please check config and params`,
+        `preswap simulation failed: ${simulationErrorLabel(simulateRes.error)}, please check config and params`,
         ConfigErrorCode.InvalidConfig
       )
     }
 
-    const valueData: any = simulateRes.events?.filter((item: any) => {
+    const valueData: any = (simulateRes.events ?? []).filter((item: any) => {
       return extractStructTagFromType(item.type).name === `CalculatedSwapResultEvent`
     })
     if (valueData.length === 0) {
       return null
     }
-    return this.transformSwapData(params, valueData[0].parsedJson.data)
+    return this.transformSwapData(params, valueData[0].parsedBcs.data)
   }
 
   private transformSwapData(params: PreSwapParams, data: any) {

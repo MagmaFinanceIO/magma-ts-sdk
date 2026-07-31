@@ -1,7 +1,18 @@
-import { DynamicFieldPage, SuiObjectResponse, SuiTransactionBlockResponse } from '@mysten/sui/client'
+import { DynamicFieldPage, SuiObjectResponse, SuiTransactionBlockResponse } from '@mysten/sui/jsonRpc'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { Transaction } from '@mysten/sui/transactions'
-import { CachedContent, cacheTime24h, cacheTime5min, checkInvalidSuiAddress, getFutureTime } from '../utils'
+import {
+  asUintN,
+  buildPool,
+  buildPositionReward,
+  buildTickData,
+  buildTickDataByEvent,
+  CachedContent,
+  cacheTime24h,
+  cacheTime5min,
+  checkInvalidSuiAddress,
+  getFutureTime,
+} from '../utils'
 import {
   CreatePoolAddLiquidityParams,
   CreatePoolParams,
@@ -16,7 +27,6 @@ import {
 } from '../types'
 import { TransactionUtil } from '../utils/transaction-util'
 import { tickScore } from '../math'
-import { asUintN, buildPool, buildPositionReward, buildTickData, buildTickDataByEvent } from '../utils/common'
 import { extractStructTagFromType, isSortedSymbols } from '../utils/contracts'
 import { TickData } from '../types/clmmpool'
 import {
@@ -46,6 +56,33 @@ type GetTickParams = {
   start: number[]
   limit: number
 } & FetchParams
+
+function simulationEventsByName(simulateRes: any, eventName: string): any[] {
+  return (
+    simulateRes.events?.filter((item: any) => {
+      return extractStructTagFromType(item.type).name === eventName
+    }) ?? []
+  )
+}
+
+function requireSimulationEvents(simulateRes: any, eventName: string, context: string): any[] {
+  const events = simulationEventsByName(simulateRes, eventName)
+  if (events.length === 0) {
+    throw new ClmmpoolsError(`${context} simulation did not emit ${eventName}`, ConfigErrorCode.InvalidConfig)
+  }
+  return events
+}
+
+function assertCreatePoolCoinTypeSequence(params: Pick<CreatePoolParams, 'coinTypeA' | 'coinTypeB'>): void {
+  const coinTypeA = normalizeSuiAddress(params.coinTypeA)
+  const coinTypeB = normalizeSuiAddress(params.coinTypeB)
+  if (coinTypeA === coinTypeB || isSortedSymbols(coinTypeA, coinTypeB)) {
+    throw new ClmmpoolsError('coinTypeA and coinTypeB must use the canonical CLMM order', PoolErrorCode.InvalidCoinTypeSequence, {
+      coinTypeA: params.coinTypeA,
+      coinTypeB: params.coinTypeB,
+    })
+  }
+}
 
 /**
  * Helper class to help interact with clmm pools with a pool router interface.
@@ -351,11 +388,7 @@ export class PoolModule implements IModule {
    */
   async creatPoolsTransactionPayload(paramss: CreatePoolParams[]): Promise<Transaction> {
     for (const params of paramss) {
-      if (isSortedSymbols(normalizeSuiAddress(params.coinTypeA), normalizeSuiAddress(params.coinTypeB))) {
-        const swpaCoinTypeB = params.coinTypeB
-        params.coinTypeB = params.coinTypeA
-        params.coinTypeA = swpaCoinTypeB
-      }
+      assertCreatePoolCoinTypeSequence(params)
     }
     const payload = await this.creatPool(paramss)
     return payload
@@ -368,15 +401,7 @@ export class PoolModule implements IModule {
    * @returns {Promise<Transaction>}
    */
   async creatPoolTransactionPayload(params: CreatePoolAddLiquidityParams): Promise<Transaction> {
-    if (isSortedSymbols(normalizeSuiAddress(params.coinTypeA), normalizeSuiAddress(params.coinTypeB))) {
-      const swpaCoinTypeB = params.coinTypeB
-      params.coinTypeB = params.coinTypeA
-      params.coinTypeA = swpaCoinTypeB
-
-      const metadataB = params.metadata_b
-      params.metadata_b = params.metadata_a
-      params.metadata_a = metadataB
-    }
+    assertCreatePoolCoinTypeSequence(params)
     return await this.createPoolAndAddLiquidity(params)
   }
 
@@ -386,14 +411,7 @@ export class PoolModule implements IModule {
    * @returns {Promise<Transaction>}
    */
   async createPoolTransactionPayload(params: CreatePoolAddLiquidityParams): Promise<Transaction> {
-    if (isSortedSymbols(normalizeSuiAddress(params.coinTypeA), normalizeSuiAddress(params.coinTypeB))) {
-      const swpaCoinTypeB = params.coinTypeB
-      params.coinTypeB = params.coinTypeA
-      params.coinTypeA = swpaCoinTypeB
-      const metadataB = params.metadata_b
-      params.metadata_b = params.metadata_a
-      params.metadata_a = metadataB
-    }
+    assertCreatePoolCoinTypeSequence(params)
     return await this.createPoolAndAddLiquidity(params)
   }
 
@@ -539,6 +557,7 @@ export class PoolModule implements IModule {
     }
 
     const tx = new Transaction()
+    tx.setSender(this.sdk.senderAddress)
     const { integrate, clmm_pool } = this.sdk.sdkOptions
     const eventConfig = getPackagerConfigs(clmm_pool)
     const globalPauseStatusObjectId = eventConfig.global_config_id
@@ -557,13 +576,11 @@ export class PoolModule implements IModule {
       tx.pure.u32(Number(asUintN(BigInt(params.tick_upper)).toString())),
       primaryCoinAInputsR.targetCoin,
       primaryCoinBInputsR.targetCoin,
-      tx.object(params.metadata_a),
-      tx.object(params.metadata_b),
       tx.pure.bool(params.fix_amount_a),
       tx.object(CLOCK_ADDRESS),
     ]
     tx.moveCall({
-      target: `${integrate.published_at}::pool_creator_v2::create_pool_v2`,
+      target: `${integrate.published_at}::pool_creator_v3::create_pool_v3`,
       typeArguments: [params.coinTypeA, params.coinTypeB],
       arguments: args,
     })
@@ -642,12 +659,10 @@ export class PoolModule implements IModule {
       )
     }
 
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `FetchTicksResultEvent`) {
-        item.parsedJson.ticks.forEach((tick: any) => {
-          ticks.push(buildTickDataByEvent(tick))
-        })
-      }
+    requireSimulationEvents(simulateRes, 'FetchTicksResultEvent', 'getTicks').forEach((item: any) => {
+      item.parsedBcs.ticks.forEach((tick: any) => {
+        ticks.push(buildTickDataByEvent(tick))
+      })
     })
     return ticks
   }
@@ -696,13 +711,11 @@ export class PoolModule implements IModule {
       }
 
       const positionRewards: PositionReward[] = []
-      simulateRes?.events?.forEach((item: any) => {
-        if (extractStructTagFromType(item.type).name === `FetchPositionsEvent`) {
-          item.parsedJson.positions.forEach((item: any) => {
-            const positionReward = buildPositionReward(item)
-            positionRewards.push(positionReward)
-          })
-        }
+      requireSimulationEvents(simulateRes, 'FetchPositionsEvent', 'fetchPositionRewardList').forEach((item: any) => {
+        item.parsedBcs.positions.forEach((item: any) => {
+          const positionReward = buildPositionReward(item)
+          positionRewards.push(positionReward)
+        })
       })
 
       allPosition.push(...positionRewards)

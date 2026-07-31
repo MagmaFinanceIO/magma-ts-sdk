@@ -1,5 +1,5 @@
 import BN from 'bn.js'
-import { Transaction, TransactionArgument, TransactionObjectArgument } from '@mysten/sui/transactions'
+import { Transaction, TransactionObjectArgument } from '@mysten/sui/transactions'
 import { isValidSuiObjectId } from '@mysten/sui/utils'
 import {
   AddLiquidityFixTokenParams,
@@ -12,7 +12,6 @@ import {
   RemoveLiquidityParams,
   getPackagerConfigs,
   AddLiquidityWithProtectionParams,
-  OpenPositionAddLiquidityWithProtectionParams,
 } from '../types'
 import {
   CachedContent,
@@ -78,7 +77,7 @@ export class PositionModule implements IModule {
 
     const ownerRes: any = await this._sdk.fullClient.getOwnedObjectsByPage(accountAddress, {
       options: { showType: true, showContent: true, showDisplay, showOwner: true },
-      filter: { Package: this._sdk.sdkOptions.clmm_pool.package_id },
+      filter: { StructType: this.buildPositionType() },
     })
 
     const hasAssignPoolIds = assignPoolIds.length > 0
@@ -110,8 +109,14 @@ export class PositionModule implements IModule {
    * @param {boolean} calculateRewarder Whether to calculate the rewarder of the position.
    * @returns {Promise<Position>} Position object.
    */
-  async getPosition(positionHandle: string, positionID: string, calculateRewarder = true, showDisplay = true): Promise<Position> {
-    let position = await this.getSimplePosition(positionID, showDisplay)
+  async getPosition(
+    positionHandle: string,
+    positionID: string,
+    calculateRewarder = true,
+    showDisplay = true,
+    forceRefresh = false
+  ): Promise<Position> {
+    let position = await this.getSimplePosition(positionID, showDisplay, forceRefresh)
     if (calculateRewarder) {
       position = await this.updatePositionRewarders(positionHandle, position)
     }
@@ -124,8 +129,8 @@ export class PositionModule implements IModule {
    * @param {boolean} calculateRewarder Whether to calculate the rewarder of the position.
    * @returns {Promise<Position>} Position object.
    */
-  async getPositionById(positionID: string, calculateRewarder = true, showDisplay = true): Promise<Position> {
-    const position = await this.getSimplePosition(positionID, showDisplay)
+  async getPositionById(positionID: string, calculateRewarder = true, showDisplay = true, forceRefresh = false): Promise<Position> {
+    const position = await this.getSimplePosition(positionID, showDisplay, forceRefresh)
     if (calculateRewarder) {
       const pool = await this._sdk.Pool.getPool(position.pool, false)
       const result = await this.updatePositionRewarders(pool.position_manager.positions_handle, position)
@@ -139,12 +144,12 @@ export class PositionModule implements IModule {
    * @param {string} positionID The ID of the position to get.
    * @returns {Promise<Position>} Position object.
    */
-  async getSimplePosition(positionID: string, showDisplay = true): Promise<Position> {
+  async getSimplePosition(positionID: string, showDisplay = true, forceRefresh = false): Promise<Position> {
     const cacheKey = `${positionID}_getPositionList`
 
     let position = this.getSimplePositionByCache(positionID)
 
-    if (position === undefined) {
+    if (forceRefresh || position === undefined) {
       const objectDataResponses = await this.sdk.fullClient.getObject({
         id: positionID,
         options: { showContent: true, showType: true, showDisplay, showOwner: true },
@@ -251,6 +256,10 @@ export class PositionModule implements IModule {
    * @returns {Promise<CollectFeesQuote[]>} A Promise that resolves with the fetched position fee amount for the specified addresses.
    */
   public async fetchPosFeeAmount(params: FetchPosFeeParams[]): Promise<CollectFeesQuote[]> {
+    if (params.length === 0) {
+      return []
+    }
+
     const { clmm_pool, integrate, simulationAccount } = this.sdk.sdkOptions
     const tx = new Transaction()
 
@@ -284,21 +293,24 @@ export class PositionModule implements IModule {
       )
     }
 
-    const valueData: any = simulateRes.events?.filter((item: any) => {
+    const valueData: any[] = (simulateRes.events ?? []).filter((item: any) => {
       return extractStructTagFromType(item.type).name === `FetchPositionFeesEvent`
     })
     if (valueData.length === 0) {
-      return []
+      throw new ClmmpoolsError('fetch position fees simulation did not emit FetchPositionFeesEvent', PoolErrorCode.InvalidPoolObject)
+    }
+    if (valueData.length !== params.length) {
+      throw new ClmmpoolsError('fetch position fees simulation returned an unexpected event count', PoolErrorCode.InvalidPoolObject)
     }
 
     const result: CollectFeesQuote[] = []
 
     for (let i = 0; i < valueData.length; i += 1) {
-      const { parsedJson } = valueData[i]
+      const { parsedBcs } = valueData[i]
       const posRrewarderResult: CollectFeesQuote = {
-        feeOwedA: new BN(parsedJson.fee_owned_a),
-        feeOwedB: new BN(parsedJson.fee_owned_b),
-        position_id: parsedJson.position_id,
+        feeOwedA: new BN(parsedBcs.fee_owned_a),
+        feeOwedB: new BN(parsedBcs.fee_owned_b),
+        position_id: parsedBcs.position_id,
       }
       result.push(posRrewarderResult)
     }
@@ -404,7 +416,7 @@ export class PositionModule implements IModule {
       const { isAdjustCoinA, isAdjustCoinB } = findAdjustCoin(params)
       params = params as AddLiquidityWithProtectionParams
       if ((params.fix_amount_a && isAdjustCoinA) || (!params.fix_amount_a && isAdjustCoinB)) {
-        tx = await TransactionUtil.buildAddLiquidityFixTokenForGas(
+        tx = await TransactionUtil.buildAddLiquidityWithProtectionFixTokenForGas(
           this._sdk,
           allCoinAsset,
           params,
@@ -711,20 +723,20 @@ export class PositionModule implements IModule {
       transactionBlock: paylod,
       sender: this._sdk.senderAddress,
     })
+    if (res.error != null) {
+      throw new ClmmpoolsError(`calculate fee simulation failed: ${res.error.code}, ${res.error.message}`, PoolErrorCode.InvalidPoolObject)
+    }
     for (const event of res.events) {
       if (extractStructTagFromType(event.type).name === 'CollectFeeEvent') {
-        const json = event.parsedJson as any
+        const parsed = event.parsedBcs as any
         return {
-          feeOwedA: json.amount_a,
-          feeOwedB: json.amount_b,
+          feeOwedA: parsed.amount_a,
+          feeOwedB: parsed.amount_b,
         }
       }
     }
 
-    return {
-      feeOwedA: '0',
-      feeOwedB: '0',
-    }
+    throw new ClmmpoolsError('calculate fee simulation did not emit CollectFeeEvent', PoolErrorCode.InvalidPoolObject)
   }
 
   /**

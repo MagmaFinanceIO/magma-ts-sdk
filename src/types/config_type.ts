@@ -1,4 +1,4 @@
-import { SuiAddressType, SuiObjectIdType } from './sui'
+import { SuiObjectIdType } from './sui'
 
 /**
  * Represents configurations specific to the Magma protocol.

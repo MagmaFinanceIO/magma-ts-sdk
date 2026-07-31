@@ -336,21 +336,34 @@ export class RewarderModule implements IModule {
       sender: simulationAccount.address,
     })
 
+    if (simulateRes.error != null) {
+      throw new ClmmpoolsError(
+        `fetch position fees simulation failed: ${simulateRes.error.code}, ${simulateRes.error.message}`,
+        ConfigErrorCode.InvalidConfig
+      )
+    }
+
     const valueData: any = simulateRes.events?.filter((item: any) => {
       return extractStructTagFromType(item.type).name === `FetchPositionFeesEvent`
     })
-    if (valueData.length === 0) {
+    if (params.length === 0) {
       return []
+    }
+    if (valueData.length === 0) {
+      throw new ClmmpoolsError('fetch position fees simulation did not emit FetchPositionFeesEvent', ConfigErrorCode.InvalidConfig)
+    }
+    if (valueData.length !== params.length) {
+      throw new ClmmpoolsError('fetch position fees simulation returned an unexpected event count', ConfigErrorCode.InvalidConfig)
     }
 
     const result: CollectFeesQuote[] = []
 
     for (let i = 0; i < valueData.length; i += 1) {
-      const { parsedJson } = valueData[i]
+      const { parsedBcs } = valueData[i]
       const posRrewarderResult: CollectFeesQuote = {
-        feeOwedA: new BN(parsedJson.fee_owned_a),
-        feeOwedB: new BN(parsedJson.fee_owned_b),
-        position_id: parsedJson.position_id,
+        feeOwedA: new BN(parsedBcs.fee_owned_a),
+        feeOwedB: new BN(parsedBcs.fee_owned_b),
+        position_id: parsedBcs.position_id,
       }
       result.push(posRrewarderResult)
     }
@@ -364,6 +377,10 @@ export class RewarderModule implements IModule {
    * @returns
    */
   async fetchPosRewardersAmount(params: FetchPosRewardParams[]) {
+    if (params.length === 0) {
+      return []
+    }
+
     const { clmm_pool, integrate, simulationAccount } = this.sdk.sdkOptions
     const tx = new Transaction()
 
@@ -401,11 +418,11 @@ export class RewarderModule implements IModule {
       )
     }
 
-    const valueData: any = simulateRes.events?.filter((item: any) => {
+    const valueData: any[] = (simulateRes.events ?? []).filter((item: any) => {
       return extractStructTagFromType(item.type).name === `FetchPositionRewardsEvent`
     })
     if (valueData.length === 0) {
-      return []
+      throw new ClmmpoolsError('fetch position rewards simulation did not emit FetchPositionRewardsEvent', ConfigErrorCode.InvalidConfig)
     }
 
     if (valueData.length !== params.length) {
@@ -423,7 +440,7 @@ export class RewarderModule implements IModule {
 
       for (let j = 0; j < params[i].rewarderInfo.length; j += 1) {
         posRrewarderResult.rewarderAmountOwed.push({
-          amount_owed: new BN(valueData[i].parsedJson.data[j]),
+          amount_owed: new BN(valueData[i].parsedBcs.data[j]),
           coin_address: params[i].rewarderInfo[j].coinAddress,
         })
       }

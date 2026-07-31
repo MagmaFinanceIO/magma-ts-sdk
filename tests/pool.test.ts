@@ -160,8 +160,6 @@ describe('Pool Module', () => {
       coinTypeA: '0x26b3bc67befc214058ca78ea9a2690298d731a2d4309485ec3d40198063c4abc::magma::MAGMA',
       coinTypeB: '0x0588cff9a50e0eaf4cd50d337c1a36570bc1517793fd3303e1513e8ad4d2aa96::usdc::USDC',
       slippage: 0.005,
-      metadata_a: '0x7bf5b2682d4f6936370006037e8026bdf62798cdcc59e2453ee0093121952099',
-      metadata_b: '0x052cf0a5bb81f890c36dc773cc260c565f6fa2fa58882863cb3aa7a357990dbf',
       tick_lower: -440000,
       tick_upper: 440000,
     })

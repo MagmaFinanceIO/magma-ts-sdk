@@ -1,11 +1,19 @@
 import MagmaClmmSDK, { CoinAsset, CoinAssist, TransactionUtil } from '../src'
 import { AggregatorResult, CoinProvider, PathProvider } from '../src/modules'
 import { MainnetCoin, SdkEnv, TestnetCoin, buildSdk, buildTestAccount } from './data/init_test_data'
-import { assert } from 'console'
+import assert from 'node:assert/strict'
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519'
 import { Secp256k1Keypair } from '@mysten/sui/keypairs/secp256k1'
 import { Transaction } from '@mysten/sui/transactions'
 import { verifyBalanceEnough } from './router_v1.test'
+
+function assertSimulationStatus(simulateRes: any, expected: 'success' | 'failure', message: string) {
+  if (expected === 'success') {
+    assert(simulateRes.error === null && simulateRes.effects?.status?.success === true, message)
+  } else {
+    assert(simulateRes.error?.code === 'SIMULATION_FAILED' && simulateRes.effects?.status?.success === false, message)
+  }
+}
 
 describe('Test Router V2 Module', () => {
   const sdk = buildSdk(SdkEnv.mainnet)
@@ -182,10 +190,10 @@ describe('Test Router V2 Module', () => {
                 const simulateRes = await execTx(sdk, true, payload, sendKeypair)!
                 if (result?.outputAmount === 0) {
                   console.log('Router swap when amount out equals 0 test passed.')
-                  assert(simulateRes.effects!.status.status === 'failure', 'Amount out equals 0 should failed.')
+                  assertSimulationStatus(simulateRes, 'failure', 'Amount out equals 0 should failed.')
                 } else {
                   console.log('Common rotuer swap test passed.')
-                  assert(simulateRes.effects!.status.status === 'success', 'Common router swap test failed.')
+                  assertSimulationStatus(simulateRes, 'success', 'Common router swap test failed.')
                 }
               } else {
                 console.log(`result exceed`)
@@ -235,7 +243,7 @@ describe('Test Router V2 Module', () => {
               if (!result?.isExceed && verifyBalanceEnough(allCoinAsset, coinList[i], result.inputAmount.toString())) {
                 const payload = await TransactionUtil.buildAggregatorSwapTransaction(sdk, result, allCoinAsset, '', 0)
                 const simulateRes = await execTx(sdk, true, payload, sendKeypair)!
-                assert(simulateRes.effects!.status.status === 'success', 'Common router swap test failed.')
+                assertSimulationStatus(simulateRes, 'success', 'Common router swap test failed.')
                 console.log('Common rotuer swap test passed.')
               } else {
                 console.log(
@@ -279,10 +287,10 @@ describe('Test Router V2 Module', () => {
       const payload = await TransactionUtil.buildAggregatorSwapTransaction(sdk, result, allCoinAsset, '', 0.01)
       const simulateRes = await execTx(sdk, false, payload, sendKeypair)!
       if (result?.outputAmount === 0) {
-        assert(simulateRes.effects!.status.status === 'failure', 'Amount out equals 0 should failed.')
+        assertSimulationStatus(simulateRes, 'failure', 'Amount out equals 0 should failed.')
         console.log('Router swap when amount out equals 0 test passed.')
       } else {
-        assert(simulateRes.effects!.status.status === 'success', 'Common router swap test failed.')
+        assertSimulationStatus(simulateRes, 'success', 'Common router swap test failed.')
         console.log('Common rotuer swap test passed.')
       }
     } else {
@@ -322,10 +330,10 @@ describe('Test Router V2 Module', () => {
       const payload = await TransactionUtil.buildAggregatorSwapTransaction(sdk, result, allCoinAsset, '', 0.01)
       const simulateRes = await execTx(sdk, true, payload, sendKeypair)!
       if (result?.outputAmount === 0) {
-        assert(simulateRes.effects!.status.status === 'failure', 'Amount out equals 0 should failed.')
+        assertSimulationStatus(simulateRes, 'failure', 'Amount out equals 0 should failed.')
         console.log('Router swap when amount out equals 0 test passed.')
       } else {
-        assert(simulateRes.effects!.status.status === 'success', 'Common router swap test failed.')
+        assertSimulationStatus(simulateRes, 'success', 'Common router swap test failed.')
         console.log('Common rotuer swap test passed.')
       }
     } else {
@@ -354,10 +362,10 @@ describe('Test Router V2 Module', () => {
       const payload = await TransactionUtil.buildAggregatorSwapTransaction(sdk, result, allCoinAsset, partner, 0)
       const simulateRes = await execTx(sdk, true, payload, sendKeypair)!
       if (result?.outputAmount === 0) {
-        assert(simulateRes.effects!.status.status === 'failure', 'Amount out equals 0 should failed.')
+        assertSimulationStatus(simulateRes, 'failure', 'Amount out equals 0 should failed.')
         console.log('Router swap when amount out equals 0 test passed.')
       } else {
-        assert(simulateRes.effects!.status.status === 'success', 'Common router swap test failed.')
+        assertSimulationStatus(simulateRes, 'success', 'Common router swap test failed.')
         console.log('Common rotuer swap test passed.')
       }
     } else {
@@ -389,7 +397,7 @@ describe('Test Router V2 Module', () => {
     if (!result?.isExceed && verifyBalanceEnough(allCoinAsset, coin_a, amount.toString())) {
       const payload = await TransactionUtil.buildAggregatorSwapTransaction(sdk, result, allCoinAsset, partner, 0)
       const execRes = await execTx(sdk, false, payload, sendKeypair)!
-      assert(execRes.effects?.status.status! === 'success', 'Swap failed')
+      assert(execRes.effects?.status?.success === true, 'Swap failed')
 
       const newCoinAsset = await sdk.getOwnerCoinAssets(sdk.senderAddress)
       const fromCoinNumsAfterSwap = CoinAssist.getCoinAssets(TestnetCoin.USDT, newCoinAsset).length
@@ -420,10 +428,10 @@ describe('Test Router V2 Module', () => {
       const payload = await TransactionUtil.buildAggregatorSwapTransaction(sdk, result, allCoinAsset, partner, 0)
       const simulateRes = await execTx(sdk, true, payload, sendKeypair)!
       if (result?.outputAmount === 0) {
-        assert(simulateRes.effects!.status.status === 'failure', 'Amount out equals 0 should failed.')
+        assertSimulationStatus(simulateRes, 'failure', 'Amount out equals 0 should failed.')
         console.log('Router swap when amount out equals 0 test passed.')
       } else {
-        assert(simulateRes.effects!.status.status === 'success', 'Common router swap test failed.')
+        assertSimulationStatus(simulateRes, 'success', 'Common router swap test failed.')
         console.log('Common rotuer swap test passed.')
       }
     } else {

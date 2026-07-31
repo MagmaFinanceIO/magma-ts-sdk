@@ -137,16 +137,23 @@ export const fixCoinType = (coinType: string, removePrefix = true) => {
  *
  * @param {any} data - The data object to be patched.
  */
-export function patchFixSuiObjectId(data: any) {
-  for (const key in data) {
-    const type = typeof data[key]
-    if (type === 'object') {
-      patchFixSuiObjectId(data[key])
-    } else if (type === 'string') {
-      const value = data[key]
-      if (value && !value.includes('::')) {
-        data[key] = fixSuiObjectId(value)
-      }
+export function patchFixSuiObjectId(data: any, seen: WeakSet<object> = new WeakSet()) {
+  if (data === null || typeof data !== 'object' || seen.has(data)) {
+    return
+  }
+
+  const prototype = Object.getPrototypeOf(data)
+  if (!Array.isArray(data) && prototype !== Object.prototype && prototype !== null) {
+    return
+  }
+
+  seen.add(data)
+  for (const key of Object.keys(data)) {
+    const value = data[key]
+    if (value !== null && typeof value === 'object') {
+      patchFixSuiObjectId(value, seen)
+    } else if (typeof value === 'string' && value && !value.includes('::')) {
+      data[key] = fixSuiObjectId(value)
     }
   }
 }

@@ -321,8 +321,6 @@ export function toAmountsBothSideByStrategy(
   amountYInActiveBin: BN,
   strategyType: StrategyType
 ): BinDisplay[] {
-  const isSingleSideX = amountY.isZero()
-
   let res: BinDisplay[] = []
   switch (strategyType) {
     // case StrategyType.Spot: {

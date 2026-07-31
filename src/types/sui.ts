@@ -30,7 +30,7 @@ export const ClmmIntegrateRouterModule = 'router'
 export const ClmmIntegrateRouterWithPartnerModule = 'router_with_partner'
 export const ClmmFetcherModule = 'fetcher_script'
 export const ClmmExpectSwapModule = 'expect_swap'
-export const ClmmIntegrateUtilsModule = 'utils'
+export const ClmmIntegrateUtilsModule = 'script_helpers'
 export const VotingEscrow = 'voting_escrow'
 export const Voter = 'voter'
 export const RewardDistributor = 'reward_distributor'
@@ -66,6 +66,8 @@ export type DataPage<T> = {
   data: T[]
   nextCursor?: any
   hasNextPage: boolean
+  /** True when a configured safety limit stopped an otherwise continuing query. */
+  truncated?: boolean
 }
 
 /**
@@ -74,6 +76,14 @@ export type DataPage<T> = {
 export type PageQuery = {
   cursor?: any
   limit?: number | null
+  /** Fetch multiple pages instead of the historical single-page behavior. */
+  all?: boolean
+  /** Safety bound used when all=true. */
+  maxPages?: number
+  /** Safety bound used when all=true. */
+  maxItems?: number
+  /** Abort in-flight pagination. */
+  signal?: AbortSignal
 }
 
 /**

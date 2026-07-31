@@ -1,5 +1,5 @@
-import { getFullnodeUrl } from '@mysten/sui/client'
-import MagmaClmmSDK, { SdkOptions } from '../main'
+import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc'
+import { MagmaClmmSDK, type SdkOptions } from '../sdk'
 
 const SDKConfig = {
   clmmConfig: {
@@ -17,15 +17,6 @@ const SDKConfig = {
     launchpad_pools_handle: '0xae67ff87c34aceea4d28107f9c6c62e297a111e9f8e70b9abbc2f4c9f5ec20fd',
     clmm_pools_handle: '0xd28736923703342b4752f5ed8c2f2a5c0cb2336c30e1fed42b387234ce8408ec',
   },
-  ve33Config: {
-    // global_config_id: '0xbbe54f3c2bd06c5ab7f93950025bff6710c9a83836d7145636fea383b315774d',
-    voter_id: '0x59571991a5c7041c4376d980061af5c7a6d8345006d6b5167bd1f00fc17b8ddb',
-    voting_escrow_id: '0x9081c8044719135da4ff2d52907fcd40c19e2a40750cbba4c1d6a59610ae1446',
-    reward_distributor_id: '0xdf213d8e0ca49c8f4a508e7d3b3a6983c4aafd639f7c99479fc75fb4451d752e',
-    distribution_cfg: '0x94e23846c975e2faf89a61bfc2b10ad64decab9069eb1f9fc39752b010868c74',
-    magma_token: '0x45ac2371c33ca0df8dc784d62c8ce5126d42edd8c56820396524dff2ae0619b1::magma_token::MAGMA_TOKEN',
-    minter_id: '0x89435d6b2a510ba50ca23303f10e91ec058f138a88f69a43fe03cd22edb214c5',
-  },
   almmConfig: {
     factory: '',
     rewarder_global_vault: '',
@@ -33,16 +24,18 @@ const SDKConfig = {
 }
 
 export const clmmTestnet: SdkOptions = {
-  fullRpcUrl: getFullnodeUrl('testnet'),
+  fullRpcUrl: getJsonRpcFullnodeUrl('testnet'),
+  network: 'testnet',
   magma_config: {
     package_id: '',
     published_at: '',
     config: SDKConfig.magmaConfig,
   },
   ve33: {
-    package_id: '0x7ab45fbe01da26e07ba21757916d540c8747cf7daa88f3171e13db17373d5adc',
-    published_at: '0x7ab45fbe01da26e07ba21757916d540c8747cf7daa88f3171e13db17373d5adc',
-    config: SDKConfig.ve33Config,
+    // Gauge/Lock are intentionally disabled until a matching package and integration
+    // deployment are available. The previous package no longer exists on testnet.
+    package_id: '',
+    published_at: '',
   },
   clmm_pool: {
     package_id: '0xca1b84a430d03e22dae08a7273c8e9dcfdb40b7f559574105f008600eeb7b4bd',

@@ -184,16 +184,31 @@ export class TokenModule implements IModule {
         sender: simulationAccount.address,
       })
 
+      if (simulateRes.error != null) {
+        throw new ClmmpoolsError(
+          `fetch token list simulation failed: ${simulateRes.error.code}, ${simulateRes.error.message}`,
+          ConfigErrorCode.InvalidConfig
+        )
+      }
+
       const tokenList: TokenInfo[] = []
 
       simulateRes.events?.forEach((item: any) => {
         const formatType = extractStructTagFromType(item.type)
         if (formatType.full_address === `${token.published_at}::coin_list::FetchCoinListEvent`) {
-          item.parsedJson.full_list.value_list.forEach((item: any) => {
+          item.parsedBcs.full_list.value_list.forEach((item: any) => {
             tokenList.push(this.transformData(item, false))
           })
         }
       })
+      if (tokenList.length === 0) {
+        const hasListEvent = simulateRes.events?.some((item: any) => {
+          return extractStructTagFromType(item.type).full_address === `${token.published_at}::coin_list::FetchCoinListEvent`
+        })
+        if (!hasListEvent) {
+          throw new ClmmpoolsError('fetch token list simulation did not emit FetchCoinListEvent', ConfigErrorCode.InvalidConfig)
+        }
+      }
       allTokenList = [...allTokenList, ...tokenList]
       if (tokenList.length < limit) {
         break
@@ -241,15 +256,30 @@ export class TokenModule implements IModule {
         sender: simulationAccount.address,
       })
 
+      if (simulateRes.error != null) {
+        throw new ClmmpoolsError(
+          `fetch pool list simulation failed: ${simulateRes.error.code}, ${simulateRes.error.message}`,
+          ConfigErrorCode.InvalidConfig
+        )
+      }
+
       const poolList: PoolInfo[] = []
       simulateRes.events?.forEach((item: any) => {
         const formatType = extractStructTagFromType(item.type)
         if (formatType.full_address === `${token.published_at}::lp_list::FetchPoolListEvent`) {
-          item.parsedJson.full_list.value_list.forEach((item: any) => {
+          item.parsedBcs.full_list.value_list.forEach((item: any) => {
             poolList.push(this.transformData(item, true))
           })
         }
       })
+      if (poolList.length === 0) {
+        const hasListEvent = simulateRes.events?.some((item: any) => {
+          return extractStructTagFromType(item.type).full_address === `${token.published_at}::lp_list::FetchPoolListEvent`
+        })
+        if (!hasListEvent) {
+          throw new ClmmpoolsError('fetch pool list simulation did not emit FetchPoolListEvent', ConfigErrorCode.InvalidConfig)
+        }
+      }
 
       allPoolList = [...allPoolList, ...poolList]
       if (poolList.length < limit) {

@@ -1,4 +1,4 @@
-import { getFullnodeUrl } from '@mysten/sui/client'
+import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc'
 import MagmaClmmSDK, { SdkOptions } from '../../src'
 
 const SDKConfig = {
@@ -21,7 +21,8 @@ const SDKConfig = {
 }
 
 export const clmmTestnet: SdkOptions = {
-  fullRpcUrl: getFullnodeUrl('testnet'),
+  fullRpcUrl: getJsonRpcFullnodeUrl('testnet'),
+  jsonRpcUrl: getJsonRpcFullnodeUrl('testnet'),
   simulationAccount: {
     address: '0x0000000000000000000000000000000000000000000000000000000000000000',
   },
@@ -35,6 +36,9 @@ export const clmmTestnet: SdkOptions = {
     config: SDKConfig.magmaConfig,
   },
 
+  ve33: { package_id: '', published_at: '' },
+  almm_pool: { package_id: '', published_at: '' },
+  distribution: { package_id: '', published_at: '' },
   clmm_pool: {
     package_id: '0x0c7ae833c220aa73a3643a0d508afa4ac5d50d97312ea4584e35f9eb21b9df12',
     published_at: '0xf3f49b91b82441ad017addff46d6d9a5867a755a86fb2374067fec19d6cc82c2',

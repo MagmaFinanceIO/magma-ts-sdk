@@ -1,7 +1,8 @@
-import { SuiMoveObject, SuiTransactionBlockResponse } from '@mysten/sui/client'
-import { CoinAsset, FaucetCoin } from '../types'
-import { extractStructTagFromType, normalizeCoinType } from '../utils/contracts'
-import { SuiAddressType } from '../types/sui'
+import { SuiMoveObject, SuiTransactionBlockResponse } from '@mysten/sui/jsonRpc'
+import { coinWithBalance, Transaction, TransactionObjectArgument } from '@mysten/sui/transactions'
+import { CoinAsset, FaucetCoin, MultiCoinInput, SuiAddressType } from '../types'
+import { d, extractStructTagFromType, normalizeCoinType } from '../utils'
+import { handleMessageError, UtilsErrorCode } from '../errors/errors'
 
 const COIN_TYPE = '0x2::coin::Coin'
 const COIN_TYPE_ARG_REGEX = /^0x2::coin::Coin<(.+)>$/
@@ -236,5 +237,88 @@ export class CoinAssist {
    */
   static calculateTotalBalance(coins: CoinAsset[]): bigint {
     return coins.reduce((partialSum, c) => partialSum + c.balance, BigInt(0))
+  }
+
+  static getCoinAmountObjId(coinInput: MultiCoinInput, amount: string): TransactionObjectArgument {
+    const coinObject = coinInput.amount_coin_array.find((coin) => {
+      if (!coin.used && d(coin.amount).eq(amount)) {
+        coin.used = true
+        return true
+      }
+      return false
+    })
+    if (!coinObject) {
+      return handleMessageError(UtilsErrorCode.CoinNotFound, `Coin not found for ${amount} ${coinInput.coin_type}`)
+    }
+    return coinObject.coin_object_id
+  }
+
+  static buildCoinWithBalance(amount: bigint, coinType: string, tx: Transaction): TransactionObjectArgument {
+    if (amount === BigInt(0) && CoinAssist.isSuiCoin(coinType)) {
+      return tx.add(coinWithBalance({ balance: amount, useGasCoin: false }))
+    }
+    return tx.add(coinWithBalance({ balance: amount, type: coinType }))
+  }
+
+  static buildMultiCoinInput(tx: Transaction, allCoinAssets: CoinAsset[], coinType: string, amounts: bigint[]): MultiCoinInput {
+    const coinAssets = CoinAssist.getCoinAssets(coinType, allCoinAssets)
+    if (CoinAssist.isSuiCoin(coinType)) {
+      const amountCoins = tx.splitCoins(
+        tx.gas,
+        amounts.map((amount) => tx.pure.u64(amount))
+      )
+      return {
+        amount_coin_array: amounts.map((amount, index) => ({
+          coin_object_id: amountCoins[index],
+          amount: amount.toString(),
+          used: false,
+        })),
+        coin_type: coinType,
+        remain_coins: coinAssets,
+      }
+    }
+
+    const totalAmount = amounts.reduce((acc, curr) => acc + curr, BigInt(0))
+    const selectedCoins = CoinAssist.selectCoinObjectIdGreaterThanOrEqual(coinAssets, totalAmount)
+    if (selectedCoins.objectArray.length === 0) {
+      return handleMessageError(
+        UtilsErrorCode.InsufficientBalance,
+        `No enough coins for ${coinType} expect ${totalAmount} actual ${CoinAssist.calculateTotalBalance(coinAssets)}`
+      )
+    }
+    const [targetCoin, ...otherCoins] = selectedCoins.objectArray
+    if (otherCoins.length > 0) {
+      tx.mergeCoins(targetCoin, otherCoins)
+    }
+
+    const amountCoins = tx.splitCoins(
+      targetCoin,
+      amounts.map((amount) => tx.pure.u64(amount))
+    )
+    return {
+      amount_coin_array: amounts.map((amount, index) => ({
+        coin_object_id: amountCoins[index],
+        amount: amount.toString(),
+        used: false,
+      })),
+      remain_coins: selectedCoins.remainCoins,
+      coin_type: coinType,
+    }
+  }
+
+  static fromBalance(balance: TransactionObjectArgument, coinType: string, tx: Transaction): TransactionObjectArgument {
+    return tx.moveCall({
+      target: `0x2::coin::from_balance`,
+      typeArguments: [coinType],
+      arguments: [balance],
+    })
+  }
+
+  static intoBalance(coinObject: TransactionObjectArgument | string, coinType: string, tx: Transaction): TransactionObjectArgument {
+    return tx.moveCall({
+      target: `0x2::coin::into_balance`,
+      typeArguments: [coinType],
+      arguments: [typeof coinObject === 'string' ? tx.object(coinObject) : coinObject],
+    })
   }
 }

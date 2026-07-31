@@ -1,5 +1,5 @@
-import { Transaction } from '@mysten/sui/transactions'
-import { SuiObjectResponse } from '@mysten/sui/client'
+import { Transaction, TransactionObjectArgument } from '@mysten/sui/transactions'
+import { SuiObjectResponse } from '@mysten/sui/jsonRpc'
 import {
   get_price_x128_from_real_id,
   get_real_id,
@@ -36,6 +36,7 @@ import {
   MintByStrategyParams,
   RaiseByStrategyParams,
   EventCreatePair,
+  U64Amount,
 } from '../types/almm'
 import { DataPage, PaginationArgs } from '../types/sui'
 import {
@@ -52,7 +53,59 @@ import {
 import { CLOCK_ADDRESS, AlmmScript, getPackagerConfigs, SuiResource, Rewarder } from '../types'
 import { MagmaClmmSDK } from '../sdk'
 import { IModule } from '../interfaces/IModule'
-import { ClmmpoolsError, PositionErrorCode, TypesErrorCode } from '../errors/errors'
+import { ClmmpoolsError, MathErrorCode, PositionErrorCode, TypesErrorCode } from '../errors/errors'
+
+const U64_MAX_VALUE = BigInt('18446744073709551615')
+
+function normalizeU64Amount(value: U64Amount, fieldName: string): string {
+  if (typeof value !== 'number' && typeof value !== 'string' && typeof value !== 'bigint') {
+    throw new ClmmpoolsError(`${fieldName} must be a number, string, or bigint`, MathErrorCode.InvalidCoinAmount)
+  }
+
+  if (typeof value === 'number' && (!Number.isSafeInteger(value) || value < 0)) {
+    throw new ClmmpoolsError(`${fieldName} must be a non-negative safe integer when provided as a number`, MathErrorCode.InvalidCoinAmount)
+  }
+
+  if (typeof value === 'string' && !/^\d+$/.test(value)) {
+    throw new ClmmpoolsError(`${fieldName} must be an unsigned integer`, MathErrorCode.InvalidCoinAmount)
+  }
+
+  let amount: bigint
+  try {
+    amount = BigInt(value)
+  } catch {
+    throw new ClmmpoolsError(`${fieldName} must be an unsigned integer`, MathErrorCode.InvalidCoinAmount)
+  }
+
+  if (amount < BigInt(0) || amount > U64_MAX_VALUE) {
+    throw new ClmmpoolsError(`${fieldName} is outside the u64 range`, MathErrorCode.InvalidCoinAmount)
+  }
+  return amount.toString()
+}
+
+function normalizeU64Amounts(values: U64Amount[], fieldName: string): string[] {
+  return values.map((value, index) => normalizeU64Amount(value, `${fieldName}[${index}]`))
+}
+
+function applyU64Slippage(amount: string, slippage: Decimal, fieldName: string): string {
+  return normalizeU64Amount(new Decimal(amount).mul(slippage).toDecimalPlaces(0).toFixed(0), fieldName)
+}
+
+function simulationEventsByName(simulateRes: any, eventName: string): any[] {
+  return (
+    simulateRes.events?.filter((item: any) => {
+      return extractStructTagFromType(item.type).name === eventName
+    }) ?? []
+  )
+}
+
+function requireSimulationEvents(simulateRes: any, eventName: string, context: string): any[] {
+  const events = simulationEventsByName(simulateRes, eventName)
+  if (events.length === 0) {
+    throw new Error(`${context} simulation did not emit ${eventName}`)
+  }
+  return events
+}
 
 export class AlmmModule implements IModule {
   protected _sdk: MagmaClmmSDK
@@ -105,10 +158,10 @@ export class AlmmModule implements IModule {
     return allPools
   }
 
-  async getPoolInfo(pools: string[]): Promise<AlmmPoolInfo[]> {
+  async getPoolInfo(pools: string[], forceRefresh = true): Promise<AlmmPoolInfo[]> {
     const cachePoolList: AlmmPoolInfo[] = []
     pools = pools.filter((poolID) => {
-      const cacheData = this.getCache<AlmmPoolInfo>(`${poolID}_getPoolObject`, false)
+      const cacheData = this.getCache<AlmmPoolInfo>(`${poolID}_getPoolObject`, forceRefresh)
       if (cacheData !== undefined) {
         cachePoolList.push(cacheData)
         return false
@@ -184,28 +237,8 @@ export class AlmmModule implements IModule {
       throw new Error(`fetchPairParams error code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
-    let res: EventPairParams = {
-      base_factor: 0,
-      filter_period: 0,
-      decay_period: 0,
-      reduction_factor: 0,
-      variable_fee_control: 0,
-      protocol_share: 0,
-      max_volatility_accumulator: 0,
-      volatility_accumulator: 0,
-      volatility_reference: 0,
-      index_reference: 0,
-      time_of_last_update: 0,
-      oracle_index: 0,
-      active_index: 0,
-      protocol_variable_share: 0,
-    }
-    simulateRes.events?.forEach((item: any) => {
-      console.log(extractStructTagFromType(item.type).name)
-      if (extractStructTagFromType(item.type).name === `EventPairParams`) {
-        res = item.parsedJson.params
-      }
-    })
+    const [pairParamsEvent] = requireSimulationEvents(simulateRes, 'EventPairParams', 'fetchPairParams')
+    const res = pairParamsEvent.parsedBcs.params
 
     return res
   }
@@ -241,6 +274,236 @@ export class AlmmModule implements IModule {
     return tx
   }
 
+  async mintByStrategy(params: MintByStrategyParams, tx = new Transaction()): Promise<Transaction> {
+    const amountATotal = normalizeU64Amount(params.amountATotal, 'amountATotal')
+    const amountBTotal = normalizeU64Amount(params.amountBTotal, 'amountBTotal')
+    if (
+      params.fixCoinA &&
+      params.fixCoinB &&
+      (amountATotal === '0' || amountBTotal === '0') &&
+      params.active_bin < params.max_bin &&
+      params.active_bin > params.min_bin
+    ) {
+      if (BigInt(amountATotal) > BigInt(0)) {
+        params.min_bin = params.active_bin
+      } else if (BigInt(amountBTotal) > BigInt(0)) {
+        params.max_bin = params.active_bin
+      }
+    }
+
+    const slippage = new Decimal(params.slippage)
+    const lowerSlippage = new Decimal(1).sub(slippage.div(10000))
+    const upperSlippage = new Decimal(1).plus(slippage.div(10000))
+    tx.setSender(this.sdk.senderAddress)
+
+    const { almm_pool, integrate } = this.sdk.sdkOptions
+    const almmConfig = getPackagerConfigs(almm_pool)
+    const price = get_price_x128_from_real_id(params.active_bin, params.bin_step)
+    const activeMin = get_storage_id_from_real_id(
+      get_real_id_from_price_x128(new Decimal(price).mul(lowerSlippage).toDecimalPlaces(0).toString(), params.bin_step)
+    )
+    const activeMax = get_storage_id_from_real_id(
+      get_real_id_from_price_x128(new Decimal(price).mul(upperSlippage).toDecimalPlaces(0).toString(), params.bin_step)
+    )
+    const allCoins = await this._sdk.getOwnerCoinAssets(this._sdk.senderAddress)
+
+    let fixedAmountA = amountATotal
+    let fixedAmountB = amountBTotal
+    let amountMin = '0'
+    let amountMax = '0'
+    let coinA: TransactionObjectArgument
+    let coinB: TransactionObjectArgument
+    if (params.fixCoinA && params.fixCoinB) {
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountATotal), params.coinTypeA, false, true).targetCoin
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountBTotal), params.coinTypeB, false, true).targetCoin
+    } else if (params.fixCoinA) {
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountATotal), params.coinTypeA, false, true).targetCoin
+      amountMin = applyU64Slippage(amountBTotal, lowerSlippage, 'amountMin')
+      amountMax = applyU64Slippage(amountBTotal, upperSlippage, 'amountMax')
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountMax), params.coinTypeB, false, true).targetCoin
+      fixedAmountB = '0'
+    } else if (params.fixCoinB) {
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountBTotal), params.coinTypeB, false, true).targetCoin
+      amountMin = applyU64Slippage(amountATotal, lowerSlippage, 'amountMin')
+      amountMax = applyU64Slippage(amountATotal, upperSlippage, 'amountMax')
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountMax), params.coinTypeA, false, true).targetCoin
+      fixedAmountA = '0'
+    } else {
+      throw new ClmmpoolsError('Either fixCoinA or fixCoinB must be true', TypesErrorCode.InvalidType)
+    }
+
+    tx.moveCall({
+      target: `${integrate.published_at}::${AlmmScript}::mint_by_strategy`,
+      typeArguments: [params.coinTypeA, params.coinTypeB],
+      arguments: [
+        tx.object(params.pair),
+        tx.object(almmConfig.factory),
+        coinA,
+        coinB,
+        tx.pure.bool(params.fixCoinA),
+        tx.pure.u64(fixedAmountA),
+        tx.pure.bool(params.fixCoinB),
+        tx.pure.u64(fixedAmountB),
+        tx.pure.u8(params.strategy),
+        tx.pure.u32(get_storage_id_from_real_id(params.min_bin)),
+        tx.pure.u32(get_storage_id_from_real_id(params.max_bin)),
+        tx.pure.u32(activeMin),
+        tx.pure.u32(activeMax),
+        tx.pure.u64(amountMin),
+        tx.pure.u64(amountMax),
+        tx.object(CLOCK_ADDRESS),
+      ],
+    })
+    return tx
+  }
+
+  async addLiquidityByStrategy(params: RaiseByStrategyParams, tx = new Transaction()): Promise<Transaction> {
+    return this.raisePositionByStrategy(params, tx, params.rewards_token.length > 0)
+  }
+
+  private async raisePositionByStrategy(params: RaiseByStrategyParams, tx: Transaction, includeRewards: boolean): Promise<Transaction> {
+    const amountATotal = normalizeU64Amount(params.amountATotal, 'amountATotal')
+    const amountBTotal = normalizeU64Amount(params.amountBTotal, 'amountBTotal')
+    const slippage = new Decimal(params.slippage)
+    const lowerSlippage = new Decimal(1).sub(slippage.div(10000))
+    const upperSlippage = new Decimal(1).plus(slippage.div(10000))
+    tx.setSender(this.sdk.senderAddress)
+
+    const { almm_pool, integrate } = this.sdk.sdkOptions
+    const almmConfig = getPackagerConfigs(almm_pool)
+    const price = get_price_x128_from_real_id(params.active_bin, params.bin_step)
+    const activeMin = get_storage_id_from_real_id(
+      get_real_id_from_price_x128(new Decimal(price).mul(lowerSlippage).toDecimalPlaces(0).toString(), params.bin_step)
+    )
+    const activeMax = get_storage_id_from_real_id(
+      get_real_id_from_price_x128(new Decimal(price).mul(upperSlippage).toDecimalPlaces(0).toString(), params.bin_step)
+    )
+    const allCoins = await this._sdk.getOwnerCoinAssets(this._sdk.senderAddress)
+
+    let fixedAmountA = amountATotal
+    let fixedAmountB = amountBTotal
+    let amountMin = '0'
+    let amountMax = '0'
+    let coinA: TransactionObjectArgument
+    let coinB: TransactionObjectArgument
+    if (params.fixCoinA && params.fixCoinB) {
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountATotal), params.coinTypeA, false, true).targetCoin
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountBTotal), params.coinTypeB, false, true).targetCoin
+    } else if (params.fixCoinA) {
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountATotal), params.coinTypeA, false, true).targetCoin
+      amountMin = applyU64Slippage(amountBTotal, lowerSlippage, 'amountMin')
+      amountMax = applyU64Slippage(amountBTotal, upperSlippage, 'amountMax')
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountMax), params.coinTypeB, false, true).targetCoin
+      fixedAmountB = '0'
+    } else if (params.fixCoinB) {
+      coinB =
+        params.coin_object_id_b ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountBTotal), params.coinTypeB, false, true).targetCoin
+      amountMin = applyU64Slippage(amountATotal, lowerSlippage, 'amountMin')
+      amountMax = applyU64Slippage(amountATotal, upperSlippage, 'amountMax')
+      coinA =
+        params.coin_object_id_a ??
+        TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountMax), params.coinTypeA, false, true).targetCoin
+      fixedAmountA = '0'
+    } else {
+      throw new ClmmpoolsError('Either fixCoinA or fixCoinB must be true', TypesErrorCode.InvalidType)
+    }
+
+    const argumentsList = [
+      tx.object(params.pair),
+      tx.object(almmConfig.factory),
+      ...(includeRewards ? [tx.object(almm_pool.config!.rewarder_global_vault)] : []),
+      tx.object(params.positionId),
+      coinA,
+      coinB,
+      tx.pure.bool(params.fixCoinA),
+      tx.pure.u64(fixedAmountA),
+      tx.pure.bool(params.fixCoinB),
+      tx.pure.u64(fixedAmountB),
+      tx.pure.u8(params.strategy),
+      tx.pure.u32(activeMin),
+      tx.pure.u32(activeMax),
+      tx.pure.u64(amountMin),
+      tx.pure.u64(amountMax),
+      tx.object(CLOCK_ADDRESS),
+    ]
+    tx.moveCall({
+      target: `${integrate.published_at}::${AlmmScript}::${
+        includeRewards ? `raise_by_strategy_${params.rewards_token.length}` : 'raise_by_strategy'
+      }`,
+      typeArguments: [params.coinTypeA, params.coinTypeB, ...(includeRewards ? params.rewards_token : [])],
+      arguments: argumentsList,
+    })
+    return tx
+  }
+
+  async burnPosition(params: AlmmBurnPositionParams, tx = new Transaction()): Promise<Transaction> {
+    tx.setSender(this.sdk.senderAddress)
+
+    const { integrate, clmm_pool, almm_pool } = this.sdk.sdkOptions
+    const clmmConfigs = getPackagerConfigs(clmm_pool)
+    const almmConfig = getPackagerConfigs(almm_pool)
+    const hasRewards = params.rewards_token.length > 0
+    tx.moveCall({
+      target: `${integrate.published_at}::${AlmmScript}::${
+        hasRewards ? `burn_position_reward${params.rewards_token.length}` : 'burn_position'
+      }`,
+      typeArguments: [params.coin_a, params.coin_b, ...params.rewards_token],
+      arguments: [
+        tx.object(almmConfig.factory),
+        tx.object(params.pool_id),
+        ...(hasRewards ? [tx.object(clmmConfigs.global_vault_id)] : []),
+        tx.object(params.position_id),
+        tx.object(CLOCK_ADDRESS),
+      ],
+    })
+    return tx
+  }
+
+  async shrinkPosition(params: AlmmShrinkPosition): Promise<Transaction> {
+    const tx = new Transaction()
+    tx.setSender(this.sdk.senderAddress)
+
+    const { integrate, clmm_pool, almm_pool } = this.sdk.sdkOptions
+    const clmmConfigs = getPackagerConfigs(clmm_pool)
+    const almmConfig = getPackagerConfigs(almm_pool)
+    const hasRewards = params.rewards_token.length > 0
+    tx.moveCall({
+      target: `${integrate.published_at}::${AlmmScript}::${
+        hasRewards ? `shrink_position_reward${params.rewards_token.length}` : 'shrink_position'
+      }`,
+      typeArguments: [params.coin_a, params.coin_b, ...params.rewards_token],
+      arguments: [
+        tx.object(almmConfig.factory),
+        tx.object(params.pool_id),
+        ...(hasRewards ? [tx.object(clmmConfigs.global_vault_id)] : []),
+        tx.object(params.position_id),
+        tx.pure.u64(params.delta_percentage),
+        tx.object(CLOCK_ADDRESS),
+      ],
+    })
+    return tx
+  }
 
   // // Create a position by percent
   // async mintPercent(params: MintPercentParams): Promise<Transaction> {
@@ -390,11 +653,15 @@ export class AlmmModule implements IModule {
 
     const allCoins = await this._sdk.getOwnerCoinAssets(this._sdk.senderAddress)
 
-    const amountATotal = params.amountsX.reduce((accumulator, currentValue) => accumulator + currentValue, 0)
-    const amountBTotal = params.amountsY.reduce((accumulator, currentValue) => accumulator + currentValue, 0)
+    const amountsX = normalizeU64Amounts(params.amountsX, 'amountsX')
+    const amountsY = normalizeU64Amounts(params.amountsY, 'amountsY')
+    const amountATotal = amountsX.reduce((total, amount) => total + BigInt(amount), BigInt(0))
+    const amountBTotal = amountsY.reduce((total, amount) => total + BigInt(amount), BigInt(0))
+    normalizeU64Amount(amountATotal, 'amountsX total')
+    normalizeU64Amount(amountBTotal, 'amountsY total')
 
-    const primaryCoinAInputs = TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountATotal), params.coinTypeA, false, true)
-    const primaryCoinBInputs = TransactionUtil.buildCoinForAmount(tx, allCoins, BigInt(amountBTotal), params.coinTypeB, false, true)
+    const primaryCoinAInputs = TransactionUtil.buildCoinForAmount(tx, allCoins, amountATotal, params.coinTypeA, false, true)
+    const primaryCoinBInputs = TransactionUtil.buildCoinForAmount(tx, allCoins, amountBTotal, params.coinTypeB, false, true)
 
     const storageIds: number[] = []
     params.realIds.forEach((i) => {
@@ -409,8 +676,8 @@ export class AlmmModule implements IModule {
       primaryCoinAInputs.targetCoin,
       primaryCoinBInputs.targetCoin,
       tx.pure.vector('u32', storageIds),
-      tx.pure.vector('u64', params.amountsX),
-      tx.pure.vector('u64', params.amountsY),
+      tx.pure.vector('u64', amountsX),
+      tx.pure.vector('u64', amountsY),
       tx.pure.address(params.to),
       tx.object(CLOCK_ADDRESS),
     ]
@@ -427,6 +694,8 @@ export class AlmmModule implements IModule {
   async swap(params: ALMMSwapParams): Promise<Transaction> {
     const tx = new Transaction()
     tx.setSender(this.sdk.senderAddress)
+    const amountIn = normalizeU64Amount(params.amountIn, 'amountIn')
+    const minAmountOut = normalizeU64Amount(params.minAmountOut, 'minAmountOut')
 
     const { clmm_pool, almm_pool, integrate } = this.sdk.sdkOptions
     const { global_config_id } = getPackagerConfigs(clmm_pool)
@@ -437,7 +706,7 @@ export class AlmmModule implements IModule {
     const primaryCoinInputA = TransactionUtil.buildCoinForAmount(
       tx,
       allCoinAsset,
-      params.swapForY ? BigInt(params.amountIn) : BigInt(0),
+      params.swapForY ? BigInt(amountIn) : BigInt(0),
       params.coinTypeA,
       false,
       true
@@ -446,7 +715,7 @@ export class AlmmModule implements IModule {
     const primaryCoinInputB = TransactionUtil.buildCoinForAmount(
       tx,
       allCoinAsset,
-      params.swapForY ? BigInt(0) : BigInt(params.amountIn),
+      params.swapForY ? BigInt(0) : BigInt(amountIn),
       params.coinTypeB,
       false,
       true
@@ -458,8 +727,8 @@ export class AlmmModule implements IModule {
       tx.object(global_config_id),
       primaryCoinInputA.targetCoin,
       primaryCoinInputB.targetCoin,
-      tx.pure.u64(params.amountIn),
-      tx.pure.u64(params.minAmountOut),
+      tx.pure.u64(amountIn),
+      tx.pure.u64(minAmountOut),
       tx.pure.bool(params.swapForY),
       tx.pure.address(params.to),
       tx.object(CLOCK_ADDRESS),
@@ -495,13 +764,9 @@ export class AlmmModule implements IModule {
       throw new Error(`swap code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
-    let res: EventBin[] = []
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventFetchBins`) {
-        const { bins } = item.parsedJson
-        res = bins
-      }
-    })
+    const [fetchBinsEvent] = requireSimulationEvents(simulateRes, 'EventFetchBins', 'fetchBins')
+    const { bins } = fetchBinsEvent.parsedBcs
+    const res: EventBin[] = bins
     res.forEach((bin) => {
       bin.real_bin_id = get_real_id(Number(bin.storage_id))
     })
@@ -639,7 +904,7 @@ export class AlmmModule implements IModule {
     for (const item of allPosition) {
       poolMap.add(item.pool)
     }
-    const poolList = await this.getPoolInfo(Array.from(poolMap))
+    const poolList = await this.getPoolInfo(Array.from(poolMap), false)
     const _params: GetPairRewarderParams[] = []
 
     for (const pool of poolList) {
@@ -703,51 +968,72 @@ export class AlmmModule implements IModule {
         throw new Error(`fetchPositionLiquidity error code: ${simulateRes.error ?? 'unknown error'}`)
       }
 
-      simulateRes.events?.forEach((item: any) => {
-        if (extractStructTagFromType(item.type).name === `EventPositionLiquidity`) {
-          positionsLiquidityRes.push({
-            position_id: item.parsedJson.position_id,
-            shares: item.parsedJson.shares,
-            liquidity: item.parsedJson.liquidity,
-            x_equivalent: item.parsedJson.x_equivalent,
-            y_equivalent: item.parsedJson.y_equivalent,
-            bin_real_ids: (item.parsedJson.bin_ids as number[]).map((id) => get_real_id(id)),
-            bin_x_eq: item.parsedJson.bin_x_eq,
-            bin_y_eq: item.parsedJson.bin_y_eq,
-            bin_liquidity: item.parsedJson.bin_liquidity,
-          })
-        }
-        if (extractStructTagFromType(item.type).name === `EventEarnedFees`) {
-          positionsFeesRes.push({
-            position_id: item.parsedJson.position_id,
-            x: item.parsedJson.x.name,
-            y: item.parsedJson.y.name,
-            fee_x: item.parsedJson.fee_x,
-            fee_y: item.parsedJson.fee_y,
-          })
-        }
-        if (extractStructTagFromType(item.type).name === `EventEarnedRewards`) {
-          positionsRewardsRes.push({
-            position_id: item.parsedJson.position_id,
-            reward: [item.parsedJson.reward.name],
-            amount: [item.parsedJson.amount],
-          })
-        }
-        if (extractStructTagFromType(item.type).name === `EventEarnedRewards2`) {
-          positionsRewardsRes.push({
-            position_id: item.parsedJson.position_id,
-            reward: [item.parsedJson.reward1.name, item.parsedJson.reward2.name],
-            amount: [item.parsedJson.amount1, item.parsedJson.amount2],
-          })
-        }
-        if (extractStructTagFromType(item.type).name === `EventEarnedRewards3`) {
-          positionsRewardsRes.push({
-            position_id: item.parsedJson.position_id,
-            reward: [item.parsedJson.reward1.name, item.parsedJson.reward2.name, item.parsedJson.reward3.name],
-            amount: [item.parsedJson.amount1, item.parsedJson.amount2, item.parsedJson.amount3],
-          })
-        }
+      const positionLiquidityEvents = simulationEventsByName(simulateRes, 'EventPositionLiquidity')
+      if (positionLiquidityEvents.length === 0) {
+        throw new Error('getUserPositionInfo simulation did not emit EventPositionLiquidity')
+      }
+      positionLiquidityEvents.forEach((item: any) => {
+        positionsLiquidityRes.push({
+          position_id: item.parsedBcs.position_id,
+          shares: item.parsedBcs.shares,
+          liquidity: item.parsedBcs.liquidity,
+          x_equivalent: item.parsedBcs.x_equivalent,
+          y_equivalent: item.parsedBcs.y_equivalent,
+          bin_real_ids: (item.parsedBcs.bin_ids as number[]).map((id) => get_real_id(id)),
+          bin_x_eq: item.parsedBcs.bin_x_eq,
+          bin_y_eq: item.parsedBcs.bin_y_eq,
+          bin_liquidity: item.parsedBcs.bin_liquidity,
+        })
       })
+
+      const earnedFeesEvents = simulationEventsByName(simulateRes, 'EventEarnedFees')
+      if (earnedFeesEvents.length === 0) {
+        throw new Error('getUserPositionInfo simulation did not emit EventEarnedFees')
+      }
+      earnedFeesEvents.forEach((item: any) => {
+        positionsFeesRes.push({
+          position_id: item.parsedBcs.position_id,
+          x: item.parsedBcs.x.name,
+          y: item.parsedBcs.y.name,
+          fee_x: item.parsedBcs.fee_x,
+          fee_y: item.parsedBcs.fee_y,
+        })
+      })
+
+      const expectedRewards = pool_reward_coins.has(item.pool) && pool_reward_coins.get(item.pool)?.length !== 0
+      if (expectedRewards) {
+        const earnedRewardsEvents = [
+          ...simulationEventsByName(simulateRes, 'EventEarnedRewards'),
+          ...simulationEventsByName(simulateRes, 'EventEarnedRewards2'),
+          ...simulationEventsByName(simulateRes, 'EventEarnedRewards3'),
+        ]
+        if (earnedRewardsEvents.length === 0) {
+          throw new Error('getUserPositionInfo simulation did not emit EventEarnedRewards')
+        }
+        earnedRewardsEvents.forEach((item: any) => {
+          if (extractStructTagFromType(item.type).name === `EventEarnedRewards`) {
+            positionsRewardsRes.push({
+              position_id: item.parsedBcs.position_id,
+              reward: [item.parsedBcs.reward.name],
+              amount: [item.parsedBcs.amount],
+            })
+          }
+          if (extractStructTagFromType(item.type).name === `EventEarnedRewards2`) {
+            positionsRewardsRes.push({
+              position_id: item.parsedBcs.position_id,
+              reward: [item.parsedBcs.reward1.name, item.parsedBcs.reward2.name],
+              amount: [item.parsedBcs.amount1, item.parsedBcs.amount2],
+            })
+          }
+          if (extractStructTagFromType(item.type).name === `EventEarnedRewards3`) {
+            positionsRewardsRes.push({
+              position_id: item.parsedBcs.position_id,
+              reward: [item.parsedBcs.reward1.name, item.parsedBcs.reward2.name, item.parsedBcs.reward3.name],
+              amount: [item.parsedBcs.amount1, item.parsedBcs.amount2, item.parsedBcs.amount3],
+            })
+          }
+        })
+      }
     }
 
     const out = []
@@ -782,7 +1068,7 @@ export class AlmmModule implements IModule {
     }
 
     // adapter new/old bin format
-    let bin_real_ids = [];
+    let bin_real_ids = []
     if (fields.bin_count) {
       bin_real_ids = new Array(fields.bin_count).fill(1).map((_, index) => get_real_id(fields.bin_start + index))
     } else {
@@ -871,20 +1157,18 @@ export class AlmmModule implements IModule {
     }
 
     const out: EventPositionLiquidity[] = []
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventPositionLiquidity`) {
-        out.push({
-          position_id: item.parsedJson.position_id,
-          shares: item.parsedJson.shares,
-          liquidity: item.parsedJson.liquidity,
-          x_equivalent: item.parsedJson.x_equivalent,
-          y_equivalent: item.parsedJson.y_equivalent,
-          bin_real_ids: (item.parsedJson.bin_ids as number[]).map((id) => get_real_id(id)),
-          bin_x_eq: item.parsedJson.bin_x_eq,
-          bin_y_eq: item.parsedJson.bin_y_eq,
-          bin_liquidity: item.parsedJson.bin_liquidity,
-        })
-      }
+    requireSimulationEvents(simulateRes, 'EventPositionLiquidity', 'fetchPositionLiquidity').forEach((item: any) => {
+      out.push({
+        position_id: item.parsedBcs.position_id,
+        shares: item.parsedBcs.shares,
+        liquidity: item.parsedBcs.liquidity,
+        x_equivalent: item.parsedBcs.x_equivalent,
+        y_equivalent: item.parsedBcs.y_equivalent,
+        bin_real_ids: (item.parsedBcs.bin_ids as number[]).map((id) => get_real_id(id)),
+        bin_x_eq: item.parsedBcs.bin_x_eq,
+        bin_y_eq: item.parsedBcs.bin_y_eq,
+        bin_liquidity: item.parsedBcs.bin_liquidity,
+      })
     })
     return out
   }
@@ -911,26 +1195,16 @@ export class AlmmModule implements IModule {
       throw new Error(`getPairLiquidity error code: ${simulateRes.error ?? 'unknown error'}`)
     }
 
+    const [pairLiquidityEvent] = requireSimulationEvents(simulateRes, 'EventPositionLiquidity', 'getPairLiquidity')
     const out: EventPairLiquidity = {
-      shares: 0,
-      liquidity: 0,
-      x: 0,
-      y: 0,
-      bin_ids: [],
-      bin_x: [],
-      bin_y: [],
+      shares: pairLiquidityEvent.parsedBcs.shares,
+      liquidity: pairLiquidityEvent.parsedBcs.liquidity,
+      x: pairLiquidityEvent.parsedBcs.x,
+      y: pairLiquidityEvent.parsedBcs.y,
+      bin_ids: pairLiquidityEvent.parsedBcs.bin_ids,
+      bin_x: pairLiquidityEvent.parsedBcs.bin_x,
+      bin_y: pairLiquidityEvent.parsedBcs.bin_y,
     }
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventPositionLiquidity`) {
-        out.shares = item.parsedJson.shares
-        out.liquidity = item.parsedJson.liquidity
-        out.x = item.parsedJson.x
-        out.y = item.parsedJson.y
-        out.bin_ids = item.bin_ids
-        out.bin_x = item.bin_x
-        out.bin_y = item.bin_y
-      }
-    })
     return out
   }
 
@@ -951,6 +1225,10 @@ export class AlmmModule implements IModule {
   }
 
   private async getEarnedFees(params: AlmmCollectFeeParams[]): Promise<AlmmEventEarnedFees[]> {
+    if (params.length === 0) {
+      return []
+    }
+
     let tx = new Transaction()
     for (const param of params) {
       tx = await this._getEarnedFees(param, tx)
@@ -984,26 +1262,29 @@ export class AlmmModule implements IModule {
     if (simulateRes.error != null) {
       throw new Error(`fetchPairRewards error code: ${simulateRes.error ?? 'unknown error'}`)
     }
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventEarnedFees`) {
-        out.push({
-          position_id: item.parsedJson.position_id,
-          x: item.parsedJson.x.name,
-          y: item.parsedJson.y.name,
-          fee_x: item.parsedJson.fee_x,
-          fee_y: item.parsedJson.fee_y,
-        })
-      }
+    requireSimulationEvents(simulateRes, 'EventEarnedFees', 'fetchPairRewards').forEach((item: any) => {
+      out.push({
+        position_id: item.parsedBcs.position_id,
+        x: item.parsedBcs.x.name,
+        y: item.parsedBcs.y.name,
+        fee_x: item.parsedBcs.fee_x,
+        fee_y: item.parsedBcs.fee_y,
+      })
     })
     return out
   }
 
   async getEarnedRewards(params: AlmmRewardsParams[]): Promise<AlmmEventEarnedRewards[]> {
     let tx = new Transaction()
+    let hasRewardRequest = false
     for (const param of params) {
       if (param.rewards_token.length !== 0) {
+        hasRewardRequest = true
         tx = await this._getEarnedRewards(param, tx)
       }
+    }
+    if (!hasRewardRequest) {
+      return []
     }
     return this._parseEarnedRewards(tx)
   }
@@ -1040,24 +1321,32 @@ export class AlmmModule implements IModule {
     if (simulateRes.error != null) {
       throw new Error(`getEarnedRewards error code: ${simulateRes.error ?? 'unknown error'}`)
     }
-    simulateRes.events?.forEach((item: any) => {
+    const earnedRewardEvents = [
+      ...simulationEventsByName(simulateRes, 'EventEarnedRewards'),
+      ...simulationEventsByName(simulateRes, 'EventEarnedRewards2'),
+      ...simulationEventsByName(simulateRes, 'EventEarnedRewards3'),
+    ]
+    if (earnedRewardEvents.length === 0) {
+      throw new Error('getEarnedRewards simulation did not emit EventEarnedRewards')
+    }
+    earnedRewardEvents.forEach((item: any) => {
       if (extractStructTagFromType(item.type).name === `EventEarnedRewards`) {
         res.push({
-          position_id: item.parsedJson.position_id,
-          reward: [item.parsedJson.reward.name],
-          amount: [item.parsedJson.amount],
+          position_id: item.parsedBcs.position_id,
+          reward: [item.parsedBcs.reward.name],
+          amount: [item.parsedBcs.amount],
         })
       } else if (extractStructTagFromType(item.type).name === `EventEarnedRewards2`) {
         res.push({
-          position_id: item.parsedJson.position_id,
-          reward: [item.parsedJson.reward1.name, item.parsedJson.reward2.name],
-          amount: [item.parsedJson.amount1, item.parsedJson.amount2],
+          position_id: item.parsedBcs.position_id,
+          reward: [item.parsedBcs.reward1.name, item.parsedBcs.reward2.name],
+          amount: [item.parsedBcs.amount1, item.parsedBcs.amount2],
         })
       } else if (extractStructTagFromType(item.type).name === `EventEarnedRewards3`) {
         res.push({
-          position_id: item.parsedJson.position_id,
-          reward: [item.parsedJson.reward1.name, item.parsedJson.reward2.name, item.parsedJson.reward3.name],
-          amount: [item.parsedJson.amount1, item.parsedJson.amount2, item.parsedJson.amount3],
+          position_id: item.parsedBcs.position_id,
+          reward: [item.parsedBcs.reward1.name, item.parsedBcs.reward2.name, item.parsedBcs.reward3.name],
+          amount: [item.parsedBcs.amount1, item.parsedBcs.amount2, item.parsedBcs.amount3],
         })
       }
     })
@@ -1066,6 +1355,10 @@ export class AlmmModule implements IModule {
 
   // return pool_id => reward_tokens
   async getPairRewarders(params: GetPairRewarderParams[]): Promise<Map<string, string[]>> {
+    if (params.length === 0) {
+      return new Map<string, string[]>()
+    }
+
     let tx = new Transaction()
     for (const param of params) {
       tx = await this._getPairRewarders(param, tx)
@@ -1100,20 +1393,18 @@ export class AlmmModule implements IModule {
     if (simulateRes.error != null) {
       throw new Error(`getPairReward error code: ${simulateRes.error ?? 'unknown error'}`)
     }
-    simulateRes.events?.forEach((item: any) => {
-      if (extractStructTagFromType(item.type).name === `EventPairRewardTypes`) {
-        const pairRewards: AlmmEventPairRewardTypes = {
-          pair_id: '',
-          tokens: [],
-        }
-
-        pairRewards.pair_id = item.parsedJson.pair_id
-        item.parsedJson.tokens.forEach((token: any) => {
-          pairRewards.tokens.push(token.name)
-        })
-
-        out.set(pairRewards.pair_id, pairRewards.tokens)
+    requireSimulationEvents(simulateRes, 'EventPairRewardTypes', 'getPairReward').forEach((item: any) => {
+      const pairRewards: AlmmEventPairRewardTypes = {
+        pair_id: '',
+        tokens: [],
       }
+
+      pairRewards.pair_id = item.parsedBcs.pair_id
+      item.parsedBcs.tokens.forEach((token: any) => {
+        pairRewards.tokens.push(token.name)
+      })
+
+      out.set(pairRewards.pair_id, pairRewards.tokens)
     })
     return out
   }

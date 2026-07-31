@@ -10,7 +10,7 @@ import {
 import 'isomorphic-fetch'
 import { printTransaction } from '../src/utils/transaction-util'
 import { adjustForSlippage, d, initMagmaSDK, Percentage, TransactionUtil } from '../src'
-import { assert } from 'console'
+import assert from 'node:assert/strict'
 
 describe('Swap calculate Module', () => {
   // const network = 'mainnet'

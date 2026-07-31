@@ -1,6 +1,9 @@
 import BN from 'bn.js'
-import { NFT, SuiAddressType, SuiObjectIdType } from './sui'
-import { Rewarder } from './clmm_type'
+import { TransactionObjectArgument } from '@mysten/sui/transactions'
+import { SuiAddressType, SuiObjectIdType } from './sui'
+import { CoinAsset, Rewarder } from './clmm_type'
+
+export type U64Amount = number | string | bigint
 
 export type FetchPairParams = {
   pair: string
@@ -22,8 +25,8 @@ export type MintPercentParams = {
   pair: string
   coinTypeA: string
   coinTypeB: string
-  amountATotal: number
-  amountBTotal: number
+  amountATotal: U64Amount
+  amountBTotal: U64Amount
   storageIds: number[] // vector<u32>
   binsAPercent: number[] // vector<u64>
   binsBPercent: number[] // vector<u64>
@@ -34,11 +37,11 @@ export type MintAmountParams = {
   pair: string
   coinTypeA: string
   coinTypeB: string
-  amountATotal: number
-  amountBTotal: number
+  amountATotal: U64Amount
+  amountBTotal: U64Amount
   storageIds: number[] // vector<u32>
-  amountsA: number[] // vector<u64>
-  amountsB: number[] // vector<u64>
+  amountsA: U64Amount[] // vector<u64>
+  amountsB: U64Amount[] // vector<u64>
   to: string
 }
 
@@ -46,8 +49,8 @@ export type ALMMSwapParams = {
   pair: string
   coinTypeA: string
   coinTypeB: string
-  amountIn: number // u64
-  minAmountOut: number // u64
+  amountIn: U64Amount // u64
+  minAmountOut: U64Amount // u64
   swapForY: boolean
   to: string
 }
@@ -159,8 +162,8 @@ export type AlmmAddLiquidityParams = {
   coin_a: string
   coin_b: string
   position_id: string
-  amounts_a: number[] // vector<u64>
-  amounts_b: number[] // vector<u64>
+  amounts_a: U64Amount[] // vector<u64>
+  amounts_b: U64Amount[] // vector<u64>
   receiver: string
   rewards_token: string[]
 }
@@ -235,6 +238,7 @@ export type BinDisplay = {
   binId: number
   amountX: BN
   amountY: BN
+  liquidity?: BN
 }
 
 export type AlmmCreatePairAddLiquidityParams = {
@@ -244,8 +248,8 @@ export type AlmmCreatePairAddLiquidityParams = {
   coinTypeB: string
   activeId: number // RealID, u32,
   realIds: number[]
-  amountsX: number[]
-  amountsY: number[]
+  amountsX: U64Amount[]
+  amountsY: U64Amount[]
   to: string
 }
 
@@ -272,8 +276,8 @@ export type MintByStrategyParams = {
   bin_step: number
   coinTypeA: string
   coinTypeB: string
-  amountATotal: number // u64
-  amountBTotal: number // u64
+  amountATotal: U64Amount // u64
+  amountBTotal: U64Amount // u64
   fixCoinA: boolean
   fixCoinB: boolean
   strategy: number // u8
@@ -293,6 +297,8 @@ export type MintByStrategyParams = {
    * base 10000 = 100%
    */
   slippage: number
+  coin_object_id_a?: TransactionObjectArgument
+  coin_object_id_b?: TransactionObjectArgument
 }
 
 export type RaiseByStrategyParams = {
@@ -301,8 +307,8 @@ export type RaiseByStrategyParams = {
   bin_step: number
   coinTypeA: string
   coinTypeB: string
-  amountATotal: number // u64
-  amountBTotal: number // u64
+  amountATotal: U64Amount // u64
+  amountBTotal: U64Amount // u64
   fixCoinA: boolean
   fixCoinB: boolean
   strategy: number // u8
@@ -313,6 +319,8 @@ export type RaiseByStrategyParams = {
 
   receiver: string
   rewards_token: string[]
+  coin_object_id_a?: TransactionObjectArgument
+  coin_object_id_b?: TransactionObjectArgument
 }
 
 export type EventCreatePair = {
@@ -328,4 +336,14 @@ export type EventCreatePair = {
 
 export type Token = {
   name: string
+}
+
+export type MultiCoinInput = {
+  amount_coin_array: {
+    coin_object_id: TransactionObjectArgument
+    amount: string
+    used: boolean
+  }[]
+  coin_type: string
+  remain_coins: CoinAsset[]
 }

@@ -9,3 +9,6 @@ package.test.json
 /.idea
 /calc_almm/target/
 /calc_almm/pkg/
+.env
+.env.*
+!.env.example

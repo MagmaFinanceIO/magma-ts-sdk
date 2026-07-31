@@ -68,21 +68,25 @@ export async function buildTestPosition(sdk: MagmaClmmSDK, posObjectId: string) 
   return position
 }
 
-export function buildTestAccount(): Ed25519Keypair {
-  const mnemonics = 'change prison cube paddle nice basic dirt drum upper army middle panic'
-  // const mnemonics =
-  //   'drum arch mouse dilemma voyage reason man prefer cook turn naive spin beyond pave horn setup banner friend among pledge charge describe popular machine'
-  const testAccountObject = Ed25519Keypair.deriveKeypair(mnemonics)
-  // console.log(' Address: ', testAccountObject.getPublicKey().toSuiAddress())
+export const TEST_ACCOUNT_MNEMONIC_ENV = 'MAGMA_TEST_ACCOUNT_MNEMONIC'
+export const TEST_ACCOUNT_NEW_MNEMONIC_ENV = 'MAGMA_TEST_ACCOUNT_NEW_MNEMONIC'
 
-  return testAccountObject
+function buildTestAccountFromEnv(envName: string): Ed25519Keypair {
+  const mnemonic = process.env[envName]?.trim()
+  if (!mnemonic) {
+    throw new Error(
+      `${envName} is required for signing integration tests. Inject a dedicated, disposable account through your shell or CI secret store.`
+    )
+  }
+  return Ed25519Keypair.deriveKeypair(mnemonic)
+}
+
+export function buildTestAccount(): Ed25519Keypair {
+  return buildTestAccountFromEnv(TEST_ACCOUNT_MNEMONIC_ENV)
 }
 
 export function buildTestAccountNew(): Ed25519Keypair {
-  const mnemonics =
-    'crush eye huge happy buzz start flag skate birth casino invite can aim type shift rare surprise window script census actual jazz argue pattern'
-  const testAccountObject = Ed25519Keypair.deriveKeypair(mnemonics)
-  return testAccountObject
+  return buildTestAccountFromEnv(TEST_ACCOUNT_NEW_MNEMONIC_ENV)
 }
 
 export enum TestnetCoin {
